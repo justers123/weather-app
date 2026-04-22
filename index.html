@@ -609,12 +609,52 @@
 
     .detail-panel-header,
     .hourly-scroll,
-    .advisor {
+    .advisor,
+    .dress-me {
       animation: fade-in 0.35s ease-out both;
     }
 
     .precip-bar::after {
       transition: height 0.4s ease-out;
+    }
+
+    .dress-me {
+      display: flex;
+      align-items: center;
+      gap: 1.25rem;
+      padding: 0.75rem 1.25rem;
+      margin-top: 1rem;
+      background: var(--mint);
+      color: var(--indigo);
+      border-radius: 14px;
+    }
+
+    .dress-me-figure {
+      flex-shrink: 0;
+      width: 72px;
+      height: 100px;
+    }
+
+    .dress-me-figure svg {
+      width: 100%;
+      height: 100%;
+      animation: bob 3.5s ease-in-out infinite;
+    }
+
+    .dress-me-title {
+      font-weight: 700;
+      font-size: 1.05rem;
+    }
+
+    .dress-me-caption {
+      font-size: 0.85rem;
+      opacity: 0.85;
+      margin-top: 0.2rem;
+    }
+
+    @keyframes bob {
+      0%, 100% { transform: translateY(0); }
+      50% { transform: translateY(-3px); }
     }
 
     @media (prefers-reduced-motion: reduce) {
@@ -883,6 +923,121 @@
       return { label: 'Low', color: '#2F5D3E' };
     }
 
+    // Pick an outfit for the selected day based on apparent temp + rain + uv + snow.
+    // For today uses the current hour; for other days uses 1pm as a representative sample.
+    function chooseOutfit(dayIndex) {
+      const h = weatherData.hourly;
+      const dayDate = weatherData.daily.time[dayIndex];
+      let idx;
+      if (dayIndex === 0) {
+        const currentHour = Number(new Date().toLocaleString('en-GB', {
+          timeZone: weatherData.timezone, hour: '2-digit', hour12: false
+        }));
+        idx = h.time.findIndex(t => t.startsWith(dayDate) && new Date(t).getHours() === currentHour);
+      } else {
+        idx = h.time.findIndex(t => t.startsWith(dayDate) && new Date(t).getHours() === 13);
+      }
+      if (idx < 0) idx = h.time.findIndex(t => t.startsWith(dayDate));
+      if (idx < 0) return null;
+
+      const temp = Math.round(h.apparent_temperature?.[idx] ?? h.temperature_2m[idx]);
+      const rain = h.precipitation_probability[idx] ?? 0;
+      const uv = h.uv_index?.[idx] ?? 0;
+      const code = h.weather_code[idx];
+      const isSnow = [71, 73, 75, 77, 85, 86].includes(code);
+
+      const outfit = { headwear: null, eyewear: null, scarf: false, torso: 'longsleeve', legs: 'trousers', umbrella: false };
+      if (temp >= 22) { outfit.torso = 'tshirt'; outfit.legs = 'shorts'; }
+      else if (temp >= 16) { outfit.torso = 'tshirt'; }
+      else if (temp >= 10) { outfit.torso = 'longsleeve'; }
+      else if (temp >= 2) { outfit.torso = 'coat'; }
+      else { outfit.torso = 'coat'; outfit.scarf = true; outfit.headwear = 'beanie'; }
+
+      if (rain >= 40) outfit.umbrella = true;
+      if (rain >= 70) outfit.torso = 'raincoat';
+      if (uv >= 5 && temp >= 16 && !outfit.umbrella) outfit.eyewear = 'sunglasses';
+      if (isSnow) { outfit.headwear = 'beanie'; outfit.scarf = true; }
+
+      return { outfit, temp, rain, isSnow };
+    }
+
+    function captionFor({ outfit, temp, rain, isSnow }) {
+      if (isSnow) return `${temp}° and snowy — full winter kit.`;
+      if (outfit.torso === 'raincoat') return `${temp}° with ${rain}% rain — full waterproofs.`;
+      if (outfit.umbrella && outfit.torso === 'coat') return `${temp}° and soggy — coat and brolly.`;
+      if (outfit.umbrella) return `${temp}° with ${rain}% rain — pack a brolly.`;
+      if (outfit.scarf) return `${temp}° — properly cold, wrap up.`;
+      if (outfit.torso === 'coat') return `${temp}° — coat required.`;
+      if (outfit.legs === 'shorts') return `${temp}° — shorts and t-shirt, enjoy.`;
+      if (outfit.torso === 'tshirt') return `${temp}° — t-shirt weather, trousers still.`;
+      return `${temp}° — light layers do the job.`;
+    }
+
+    function renderFigure(outfit) {
+      const skin = '#F5C998';
+      const isShorts = outfit.legs === 'shorts';
+      const hasSleeves = outfit.torso !== 'tshirt';
+      const isCoat = outfit.torso === 'coat' || outfit.torso === 'raincoat';
+      const torsoColor = outfit.torso === 'raincoat' ? '#E5B94F'
+        : outfit.torso === 'tshirt' ? 'var(--teal)'
+        : 'var(--indigo)';
+      const parts = [];
+
+      parts.push(`<ellipse cx="50" cy="128" rx="20" ry="2.5" fill="rgba(0,0,0,0.12)"/>`);
+
+      const legColor = isShorts ? skin : 'var(--indigo)';
+      parts.push(`<rect x="40" y="90" width="8" height="36" rx="3" fill="${legColor}"/>`);
+      parts.push(`<rect x="52" y="90" width="8" height="36" rx="3" fill="${legColor}"/>`);
+      if (isShorts) parts.push(`<rect x="36" y="86" width="28" height="14" rx="4" fill="var(--teal)"/>`);
+      parts.push(`<ellipse cx="44" cy="126" rx="5.5" ry="3" fill="var(--indigo)"/>`);
+      parts.push(`<ellipse cx="56" cy="126" rx="5.5" ry="3" fill="var(--indigo)"/>`);
+
+      const armColor = hasSleeves ? torsoColor : skin;
+      const armX = isCoat ? 20 : 22;
+      const armW = isCoat ? 10 : 9;
+      parts.push(`<rect x="${armX}" y="46" width="${armW}" height="36" rx="4" fill="${armColor}"/>`);
+      parts.push(`<rect x="${100 - armX - armW}" y="46" width="${armW}" height="36" rx="4" fill="${armColor}"/>`);
+
+      const torsoW = isCoat ? 36 : 30;
+      const torsoX = (100 - torsoW) / 2;
+      parts.push(`<rect x="${torsoX}" y="42" width="${torsoW}" height="52" rx="6" fill="${torsoColor}"/>`);
+      if (isCoat) parts.push(`<line x1="50" y1="45" x2="50" y2="90" stroke="rgba(0,0,0,0.2)" stroke-width="1"/>`);
+
+      parts.push(`<circle cx="${armX + armW / 2}" cy="83" r="3.5" fill="${skin}"/>`);
+      parts.push(`<circle cx="${100 - armX - armW / 2}" cy="83" r="3.5" fill="${skin}"/>`);
+
+      parts.push(`<rect x="47" y="38" width="6" height="6" fill="${skin}"/>`);
+      parts.push(`<circle cx="50" cy="26" r="14" fill="${skin}"/>`);
+      parts.push(`<path d="M 37 19 Q 50 8 63 19 Q 60 12 50 11 Q 40 12 37 19 Z" fill="var(--indigo)"/>`);
+
+      if (outfit.eyewear === 'sunglasses') {
+        parts.push(`<rect x="39" y="23" width="22" height="5" rx="2" fill="#1a1a1a"/>`);
+      } else {
+        parts.push(`<circle cx="45" cy="26" r="1.3" fill="var(--indigo)"/>`);
+        parts.push(`<circle cx="55" cy="26" r="1.3" fill="var(--indigo)"/>`);
+      }
+      parts.push(`<path d="M 46 31 Q 50 33 54 31" stroke="var(--indigo)" stroke-width="1.2" fill="none" stroke-linecap="round"/>`);
+
+      if (outfit.scarf) {
+        parts.push(`<path d="M 36 38 Q 50 44 64 38 L 64 45 Q 50 50 36 45 Z" fill="var(--plum)"/>`);
+        parts.push(`<path d="M 58 44 L 62 56 L 56 54 Z" fill="var(--plum)"/>`);
+      }
+
+      if (outfit.headwear === 'beanie') {
+        parts.push(`<path d="M 35 17 Q 50 2 65 17 L 65 14 Q 60 5 50 5 Q 40 5 35 14 Z" fill="var(--plum)"/>`);
+        parts.push(`<rect x="35" y="16" width="30" height="4" fill="var(--plum)"/>`);
+        parts.push(`<circle cx="50" cy="3" r="3" fill="var(--cream)"/>`);
+      }
+
+      if (outfit.umbrella) {
+        parts.push(`<path d="M 14 10 Q 50 -12 86 10 Q 75 5 65 9 Q 57 3 50 8 Q 43 3 35 9 Q 25 5 14 10 Z" fill="var(--teal)" stroke="var(--indigo)" stroke-width="0.7"/>`);
+        parts.push(`<line x1="50" y1="8" x2="50" y2="37" stroke="var(--indigo)" stroke-width="1.5"/>`);
+        parts.push(`<path d="M 50 37 Q 54 39 54 43" fill="none" stroke="var(--indigo)" stroke-width="1.5" stroke-linecap="round"/>`);
+      }
+
+      return `<svg viewBox="-5 -15 110 150" xmlns="http://www.w3.org/2000/svg">${parts.join('')}</svg>`;
+    }
+
     // Descriptive band for wind speed in mph — roughly aligned to the Beaufort scale.
     function classifyWind(mph) {
       if (mph == null || isNaN(mph)) return '';
@@ -1140,6 +1295,20 @@
          </div>` :
         '';
 
+      const dressMe = chooseOutfit(dayIndex);
+      const dressMeTitle = dayIndex === 0
+        ? 'Dress for today'
+        : `Dress for ${new Date(dayDate).toLocaleDateString(undefined, { weekday: 'long' })}`;
+      const dressMeHTML = dressMe ? `
+        <div class="dress-me">
+          <div class="dress-me-figure">${renderFigure(dressMe.outfit)}</div>
+          <div>
+            <div class="dress-me-title">${dressMeTitle}</div>
+            <div class="dress-me-caption">${captionFor(dressMe)}</div>
+          </div>
+        </div>
+      ` : '';
+
       document.getElementById('detail-panel').innerHTML = `
       ${advisorsHTML}
       <div class="detail-panel-header">
@@ -1167,6 +1336,7 @@
         <div class="precip-bars">${precipBarsHTML}</div>
         <div class="hourly-row">${hoursHTML}</div>
       </div>
+      ${dressMeHTML}
     `;
 
       // Default the hourly strip's scroll position: "Now" for today, 7am for
