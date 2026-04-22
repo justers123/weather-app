@@ -269,6 +269,48 @@
       font-weight: 600;
     }
 
+    .hour-feels {
+      font-size: 0.7rem;
+      color: var(--slate);
+      margin-top: 0.15rem;
+      min-height: 1em;
+    }
+
+    .hour-card.now .hour-feels {
+      color: var(--stone);
+    }
+
+    .precip-bars {
+      display: flex;
+      gap: 0.5rem;
+      padding: 0 0.5rem;
+      min-width: min-content;
+      margin-bottom: 0.35rem;
+      align-items: flex-end;
+    }
+
+    .precip-bar {
+      flex: 0 0 auto;
+      width: 92px;
+      height: 20px;
+      background: rgba(87, 114, 103, 0.15);
+      border-radius: 3px;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .precip-bar::after {
+      content: '';
+      position: absolute;
+      left: 2px;
+      right: 2px;
+      bottom: 0;
+      height: var(--p, 0%);
+      background: #3B82F6;
+      opacity: 0.7;
+      border-radius: 2px;
+    }
+
     .hour-metric {
       display: flex;
       align-items: center;
@@ -293,40 +335,59 @@
       flex-shrink: 0;
     }
 
-    .washing {
+    .advisor {
       display: flex;
       align-items: center;
       gap: 1rem;
       padding: 1rem 1.25rem;
-      margin-bottom: 1.25rem;
+      margin-bottom: 0.75rem;
       border: 1px solid transparent;
       border-radius: 5px;
     }
 
-    .washing.yes {
+    .advisor + .detail-panel-header {
+      margin-top: 1.25rem;
+    }
+
+    .advisor.yes {
       background: #CFE4D3;
       border-color: #7FA889;
       color: #2F5D3E;
     }
 
-    .washing.no {
+    .advisor.no {
       background: #E6CFCB;
       border-color: #B88681;
       color: #8A3D35;
     }
 
-    .washing-icon {
+    .advisor.frost {
+      background: #D6E4EE;
+      border-color: #7EA3C2;
+      color: #2D4E6B;
+    }
+
+    .advisor.uv {
+      background: #F4E4B5;
+      border-color: #C9A84B;
+      color: #7A5A1F;
+    }
+
+    .advisor-icon {
       font-size: 2rem;
       line-height: 1;
       flex-shrink: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
     }
 
-    .washing-title {
+    .advisor-title {
       font-weight: 700;
       font-size: 1.05rem;
     }
 
-    .washing-reason {
+    .advisor-reason {
       font-size: 0.85rem;
       opacity: 0.85;
       margin-top: 0.15rem;
@@ -525,7 +586,12 @@
         margin: 0.3rem auto 0;
       }
 
-      .day-card .day-temps,
+      .day-card .day-temps {
+        font-size: 0.85rem;
+        margin-top: 0.3rem;
+      }
+
+      .day-card .temp-min,
       .day-card .day-desc {
         display: none;
       }
@@ -710,8 +776,8 @@
 
     async function getWeather(lat, lon) {
       const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}` +
-        `&hourly=temperature_2m,weather_code,precipitation_probability,wind_speed_10m` +
-        `&daily=weather_code,temperature_2m_max,temperature_2m_min,sunrise,sunset` +
+        `&hourly=temperature_2m,apparent_temperature,weather_code,precipitation_probability,wind_speed_10m,uv_index` +
+        `&daily=weather_code,temperature_2m_max,temperature_2m_min,sunrise,sunset,uv_index_max` +
         `&wind_speed_unit=mph&timezone=auto&forecast_days=7`;
       const r = await fetch(url);
       if (!r.ok) throw new Error('Weather service unavailable.');
@@ -749,6 +815,16 @@
         label: 'Low',
         color: '#2F5D3E'
       };
+    }
+
+    // WHO UV-index bands. Colour follows the standard green/yellow/orange/red/violet scheme.
+    function classifyUV(uv) {
+      if (uv == null || isNaN(uv)) return null;
+      if (uv >= 11) return { label: 'Extreme', color: '#6B3FA0' };
+      if (uv >= 8) return { label: 'V High', color: '#8A3D35' };
+      if (uv >= 6) return { label: 'High', color: '#C27B1F' };
+      if (uv >= 3) return { label: 'Moderate', color: '#7A5A1F' };
+      return { label: 'Low', color: '#2F5D3E' };
     }
 
     // Descriptive band for wind speed in mph — roughly aligned to the Beaufort scale.
@@ -852,26 +928,38 @@
         const isNow = dayIndex === 0 && new Date(t).getHours() === currentHour;
         const precip = h.precipitation_probability[i] ?? 0;
         const wind = h.wind_speed_10m[i];
+        const temp = Math.round(h.temperature_2m[i]);
+        const feels = h.apparent_temperature ? Math.round(h.apparent_temperature[i]) : null;
+        const feelsHTML = feels != null && Math.abs(feels - temp) >= 1
+          ? `<div class="hour-feels">feels ${feels}°</div>`
+          : `<div class="hour-feels"></div>`;
         return `
         <div class="hour-card ${isNow ? 'now' : ''}" data-hour="${new Date(t).getHours()}">
           <div class="hour-time">${isNow ? 'Now' : formatHour(t)}</div>
           <div class="hour-icon">${icon}</div>
-          <div class="hour-temp">${Math.round(h.temperature_2m[i])}°</div>
+          <div class="hour-temp">${temp}°</div>
+          ${feelsHTML}
           <div class="hour-metric hour-precip">${DROP_ICON}<span>${precip}%</span></div>
           <div class="hour-metric hour-wind">${WIND_ICON}<span>${classifyWind(wind)}</span></div>
         </div>
       `;
       }).join('');
 
+      const precipBarsHTML = hoursForDay.map(({ i }) => {
+        const p = h.precipitation_probability[i] ?? 0;
+        return `<div class="precip-bar" style="--p:${p}%" title="${p}% chance of rain"></div>`;
+      }).join('');
+
       const title = dayIndex === 0 ?
         'Today · Hourly' :
         `${new Date(dayDate).toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' })} · Hourly`;
 
-      // Washing-line check: for today, start from whichever is later of "now"
-      // or 7am (so past hours are ignored). For other days, the full 7am–4pm
-      // window applies. Hidden entirely when viewing a searched city.
-      let washingHTML = '';
+      // Build advisor cards: washing-line, frost warning, UV warning.
+      // All are hidden for searched cities since they're personal decisions.
+      let advisorsHTML = '';
       if (!isSearchedLocation) {
+        // Washing-line: for today, start from whichever is later of "now"
+        // or 7am. For other days, the full 7am–4pm window applies.
         const washingStart = dayIndex === 0 ? Math.max(7, currentHour) : 7;
         const washingHours = hoursForDay.filter(({ t }) => {
           const hr = new Date(t).getHours();
@@ -884,19 +972,106 @@
           const windowLabel = washingStart === 7
             ? '7am–4pm'
             : `${washingStart > 12 ? washingStart - 12 : washingStart}${washingStart >= 12 ? 'pm' : 'am'}–4pm`;
-          washingHTML = `
-          <div class="washing ${canHang ? 'yes' : 'no'}">
-            <div class="washing-icon">${canHang
+          advisorsHTML += `
+          <div class="advisor ${canHang ? 'yes' : 'no'}">
+            <div class="advisor-icon">${canHang
               ? `<svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>`
               : `<svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>`}</div>
             <div>
-              <div class="washing-title">Hang washing outside? ${canHang ? 'Yes' : 'No'}</div>
-              <div class="washing-reason">${canHang
+              <div class="advisor-title">Hang washing outside? ${canHang ? 'Yes' : 'No'}</div>
+              <div class="advisor-reason">${canHang
                 ? `Rain chance stays under 30% (peak ${maxProb}% between ${windowLabel}).`
                 : `Peak rain chance is ${maxProb}% between ${windowLabel} — needs to stay under 30%.`}</div>
             </div>
           </div>
         `;
+        }
+
+        // Frost warning: for today, look at the remaining hours plus the
+        // overnight into tomorrow (until 8am) since frost forms after dark.
+        // For other days, look at that day's full hourly range.
+        let frostHours;
+        if (dayIndex === 0) {
+          const todayDate = d.time[0];
+          const tomorrowDate = d.time[1];
+          frostHours = h.time
+            .map((t, i) => ({ t, i }))
+            .filter(({ t }) => {
+              const hr = new Date(t).getHours();
+              if (t.startsWith(todayDate) && hr >= currentHour) return true;
+              if (tomorrowDate && t.startsWith(tomorrowDate) && hr <= 8) return true;
+              return false;
+            });
+        } else {
+          frostHours = hoursForDay;
+        }
+        if (frostHours.length > 0) {
+          const temps = frostHours.map(({ i }) => h.temperature_2m[i]);
+          const minTemp = Math.min(...temps);
+          if (minTemp < 2) {
+            const minIdx = frostHours[temps.indexOf(minTemp)].i;
+            const minWhen = formatHour(h.time[minIdx]);
+            const rounded = Math.round(minTemp);
+            advisorsHTML += `
+            <div class="advisor frost">
+              <div class="advisor-icon">
+                <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <line x1="12" y1="2" x2="12" y2="22"/>
+                  <line x1="2" y1="12" x2="22" y2="12"/>
+                  <line x1="4.93" y1="4.93" x2="19.07" y2="19.07"/>
+                  <line x1="19.07" y1="4.93" x2="4.93" y2="19.07"/>
+                  <polyline points="8 5 12 9 16 5"/>
+                  <polyline points="8 19 12 15 16 19"/>
+                  <polyline points="5 8 9 12 5 16"/>
+                  <polyline points="19 8 15 12 19 16"/>
+                </svg>
+              </div>
+              <div>
+                <div class="advisor-title">Frost likely ${dayIndex === 0 ? 'tonight' : ''}</div>
+                <div class="advisor-reason">Drops to ${rounded}°C around ${minWhen} — cover tender plants, expect icy windscreens.</div>
+              </div>
+            </div>
+          `;
+          }
+        }
+
+        // UV warning: look at remaining daylight hours on the selected day.
+        // Only warn if max UV during that window is 6+ (High or above).
+        if (h.uv_index) {
+          const uvHours = hoursForDay.filter(({ t }) => {
+            const hr = new Date(t).getHours();
+            return dayIndex === 0 ? hr >= currentHour && hr <= 20 : hr >= 6 && hr <= 20;
+          });
+          if (uvHours.length > 0) {
+            const uvValues = uvHours.map(({ i }) => h.uv_index[i] ?? 0);
+            const maxUV = Math.max(...uvValues);
+            if (maxUV >= 6) {
+              const peakIdx = uvHours[uvValues.indexOf(maxUV)].i;
+              const peakWhen = formatHour(h.time[peakIdx]);
+              const band = classifyUV(maxUV);
+              advisorsHTML += `
+              <div class="advisor uv">
+                <div class="advisor-icon">
+                  <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <circle cx="12" cy="12" r="4"/>
+                    <line x1="12" y1="2" x2="12" y2="4"/>
+                    <line x1="12" y1="20" x2="12" y2="22"/>
+                    <line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/>
+                    <line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/>
+                    <line x1="2" y1="12" x2="4" y2="12"/>
+                    <line x1="20" y1="12" x2="22" y2="12"/>
+                    <line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/>
+                    <line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/>
+                  </svg>
+                </div>
+                <div>
+                  <div class="advisor-title">Sunscreen recommended</div>
+                  <div class="advisor-reason">UV peaks at ${Math.round(maxUV)} (${band.label}) around ${peakWhen} — unprotected skin burns quickly.</div>
+                </div>
+              </div>
+            `;
+            }
+          }
         }
       }
 
@@ -910,7 +1085,7 @@
         '';
 
       document.getElementById('detail-panel').innerHTML = `
-      ${washingHTML}
+      ${advisorsHTML}
       <div class="detail-panel-header">
         <div>
           <div class="detail-panel-title">${title}</div>
@@ -933,6 +1108,7 @@
         </div>
       </div>
       <div class="hourly-scroll">
+        <div class="precip-bars">${precipBarsHTML}</div>
         <div class="hourly-row">${hoursHTML}</div>
       </div>
     `;
