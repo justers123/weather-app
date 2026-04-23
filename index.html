@@ -286,6 +286,35 @@
       font-size: 1.1rem;
     }
 
+    .site-footer {
+      margin-top: 3rem;
+      padding: 1.25rem 0 0.5rem;
+      text-align: center;
+      color: rgba(255, 255, 255, 0.75);
+      font-size: 0.85rem;
+      line-height: 1.6;
+    }
+
+    .site-footer a,
+    .site-footer-link {
+      color: rgba(255, 255, 255, 0.92);
+      text-decoration: underline;
+      background: none;
+      border: none;
+      padding: 0;
+      font: inherit;
+      cursor: pointer;
+    }
+
+    .site-footer a:hover,
+    .site-footer-link:hover {
+      color: #ffffff;
+    }
+
+    .summary-modal-body a {
+      color: var(--plum);
+    }
+
     .detail-panel {
       background: var(--cream);
       padding: 1.5rem;
@@ -965,6 +994,11 @@
     <div id="content">
       <div class="status">Getting your location…</div>
     </div>
+    <footer class="site-footer">
+      Weather by <a href="https://open-meteo.com/" target="_blank" rel="noopener">Open-Meteo</a>
+      · Reverse geocoding by <a href="https://www.bigdatacloud.com/" target="_blank" rel="noopener">BigDataCloud</a>
+      · <button type="button" class="site-footer-link" id="btn-privacy">Privacy</button>
+    </footer>
   </div>
 
   <div class="search-controls">
@@ -2089,6 +2123,67 @@
       if (e.key === 'Escape') closeSummaryModal();
     }
 
+    let privacyReturnFocus = null;
+
+    function openPrivacyModal(triggerEl) {
+      privacyReturnFocus = triggerEl || null;
+
+      const backdrop = document.createElement('div');
+      backdrop.className = 'summary-backdrop';
+      backdrop.id = 'privacy-backdrop';
+      backdrop.setAttribute('role', 'dialog');
+      backdrop.setAttribute('aria-modal', 'true');
+      backdrop.setAttribute('aria-label', 'Privacy');
+      backdrop.innerHTML = `
+        <div class="summary-modal" role="document">
+          <div class="summary-modal-header">
+            <div class="summary-modal-title"><span>Privacy</span></div>
+            <button type="button" class="summary-modal-close" aria-label="Close privacy notice">
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                <line x1="18" y1="6" x2="6" y2="18"/>
+                <line x1="6" y1="6" x2="18" y2="18"/>
+              </svg>
+            </button>
+          </div>
+          <div class="summary-modal-body">
+            <p>This app asks for your browser's location so it can show a local forecast. Your coordinates are sent to <a href="https://open-meteo.com/" target="_blank" rel="noopener">Open-Meteo</a> for weather data and <a href="https://www.bigdatacloud.com/" target="_blank" rel="noopener">BigDataCloud</a> to turn them into a place name.</p>
+            <p>Your most recent location is stored in your browser's localStorage for up to 7 days so the forecast loads quickly next time. Nothing is saved on any server — there is no backend.</p>
+            <p>No cookies, no analytics, no tracking.</p>
+          </div>
+        </div>
+      `;
+
+      backdrop.addEventListener('click', e => {
+        if (e.target === backdrop) closePrivacyModal();
+      });
+      backdrop.querySelector('.summary-modal-close')
+        .addEventListener('click', closePrivacyModal);
+
+      document.body.appendChild(backdrop);
+      document.body.style.overflow = 'hidden';
+      document.addEventListener('keydown', privacyKeyHandler);
+
+      requestAnimationFrame(() => {
+        backdrop.querySelector('.summary-modal-close').focus();
+      });
+    }
+
+    function closePrivacyModal() {
+      const existing = document.getElementById('privacy-backdrop');
+      if (!existing) return;
+      existing.remove();
+      document.body.style.overflow = '';
+      document.removeEventListener('keydown', privacyKeyHandler);
+      if (privacyReturnFocus && document.contains(privacyReturnFocus)) {
+        privacyReturnFocus.focus();
+      }
+      privacyReturnFocus = null;
+    }
+
+    function privacyKeyHandler(e) {
+      if (e.key === 'Escape') closePrivacyModal();
+    }
+
     function selectDay(index, scrollEdge) {
       selectedDayIndex = index;
       document.querySelectorAll('.day-card').forEach((el, i) => {
@@ -2312,6 +2407,10 @@
     btnSearch.addEventListener('click', (e) => {
       e.stopPropagation();
       toggleSearch();
+    });
+
+    document.getElementById('btn-privacy').addEventListener('click', (e) => {
+      openPrivacyModal(e.currentTarget);
     });
 
     searchInput.addEventListener('input', () => {
