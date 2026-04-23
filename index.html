@@ -814,7 +814,7 @@
   </style>
 </head>
 <body>
-  <a href="#" class="brand" aria-label="Skylark Weather">
+  <div class="brand" aria-label="Skylark Weather">
     <svg class="brand-logo" viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
       <circle cx="56" cy="9" r="6" fill="#FFC107" />
 
@@ -844,7 +844,7 @@
       <span class="brand-name">Skylark</span>
       <span class="brand-tagline">Weather</span>
     </div>
-  </a>
+  </div>
 
   <div class="container">
     <div class="header">
@@ -1436,55 +1436,57 @@
         `${new Date(dayDate).toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' })} · Hourly`;
 
       // Build advisor cards: washing-line, frost warning, UV warning.
-      // All are hidden for searched cities since they're personal decisions.
+      // Washing shows for any location. Frost/UV are gated to "here" since
+      // they're personal (your plants, your skin) rather than travel-planning.
       let advisorsHTML = '';
-      if (!isSearchedLocation) {
-        // Washing-line: daylight hours, since stuff dries by sun + warmth.
-        // For today, start from whichever is later of "now" or sunrise.
-        const sunriseHr = new Date(d.sunrise[dayIndex]).getHours();
-        const sunsetHr = new Date(d.sunset[dayIndex]).getHours();
-        const washingStart = dayIndex === 0 ? Math.max(sunriseHr, currentHour) : sunriseHr;
-        const washingEnd = sunsetHr;
-        const washingHours = hoursForDay.filter(({
-          t
-        }) => {
-          const hr = new Date(t).getHours();
-          return hr >= washingStart && hr <= washingEnd;
-        });
-        if (washingHours.length > 0) {
-          const maxProb = Math.max(...washingHours.map(({
-            i
-          }) => h.precipitation_probability[i] ?? 0));
-          // Bar must be cleared on both axes — a 35% chance of zero-mm fizzle
-          // shouldn't block hanging out, only a real risk of measurable rain.
-          const canHang = washingHours.every(({
-            i
-          }) => {
-            const p = h.precipitation_probability[i] ?? 0;
-            const mm = h.precipitation?.[i] ?? 0;
-            return !(p >= 30 && mm >= 0.2);
-          });
-          const fmtHour12 = hr => {
-            const period = hr >= 12 ? 'pm' : 'am';
-            const h12 = hr % 12 === 0 ? 12 : hr % 12;
-            return `${h12}${period}`;
-          };
-          const windowLabel = `${fmtHour12(washingStart)}–${fmtHour12(washingEnd)}`;
-          advisorsHTML += `
-          <div class="advisor ${canHang ? 'yes' : 'no'}">
-            <div class="advisor-icon">${canHang
-              ? `<svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>`
-              : `<svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>`}</div>
-            <div>
-              <div class="advisor-title">Hang washing outside? ${canHang ? 'Yes' : 'No'}</div>
-              <div class="advisor-reason">${canHang
-                ? `Rain chance stays under 30% (peak ${maxProb}% between ${windowLabel}).`
-                : `Peak rain chance is ${maxProb}% between ${windowLabel} — needs to stay under 30%.`}</div>
-            </div>
-          </div>
-        `;
-        }
 
+      // Washing-line: daylight hours, since stuff dries by sun + warmth.
+      // For today, start from whichever is later of "now" or sunrise.
+      const sunriseHr = new Date(d.sunrise[dayIndex]).getHours();
+      const sunsetHr = new Date(d.sunset[dayIndex]).getHours();
+      const washingStart = dayIndex === 0 ? Math.max(sunriseHr, currentHour) : sunriseHr;
+      const washingEnd = sunsetHr;
+      const washingHours = hoursForDay.filter(({
+        t
+      }) => {
+        const hr = new Date(t).getHours();
+        return hr >= washingStart && hr <= washingEnd;
+      });
+      if (washingHours.length > 0) {
+        const maxProb = Math.max(...washingHours.map(({
+          i
+        }) => h.precipitation_probability[i] ?? 0));
+        // Bar must be cleared on both axes — a 35% chance of zero-mm fizzle
+        // shouldn't block hanging out, only a real risk of measurable rain.
+        const canHang = washingHours.every(({
+          i
+        }) => {
+          const p = h.precipitation_probability[i] ?? 0;
+          const mm = h.precipitation?.[i] ?? 0;
+          return !(p >= 30 && mm >= 0.2);
+        });
+        const fmtHour12 = hr => {
+          const period = hr >= 12 ? 'pm' : 'am';
+          const h12 = hr % 12 === 0 ? 12 : hr % 12;
+          return `${h12}${period}`;
+        };
+        const windowLabel = `${fmtHour12(washingStart)}–${fmtHour12(washingEnd)}`;
+        advisorsHTML += `
+        <div class="advisor ${canHang ? 'yes' : 'no'}">
+          <div class="advisor-icon">${canHang
+            ? `<svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>`
+            : `<svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>`}</div>
+          <div>
+            <div class="advisor-title">Hang washing outside? ${canHang ? 'Yes' : 'No'}</div>
+            <div class="advisor-reason">${canHang
+              ? `Rain chance stays under 30% (peak ${maxProb}% between ${windowLabel}).`
+              : `Peak rain chance is ${maxProb}% between ${windowLabel} — needs to stay under 30%.`}</div>
+          </div>
+        </div>
+      `;
+      }
+
+      if (!isSearchedLocation) {
         // Frost warning: for today, look at the remaining hours plus the
         // overnight into tomorrow (until 8am) since frost forms after dark.
         // For other days, look at that day's full hourly range.
