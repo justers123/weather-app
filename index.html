@@ -1666,142 +1666,142 @@
       `;
       }
 
-      if (!isSearchedLocation) {
-        // Bike-to-work: weekdays only, checks 7–8am since that's the commute
-        // window. Suppressed on today if it's already past 8am (the question
-        // is no longer live). Heavy rain / strong gusts / snow break it;
-        // light drizzle is fine — just bring waterproofs.
-        const dayOfWeek = new Date(dayDate).getDay();
-        const isWeekday = dayOfWeek >= 1 && dayOfWeek <= 5;
-        const bikeTooLate = dayIndex === 0 && currentHour >= 8;
-        if (isWeekday && !bikeTooLate) {
-          const bikeIdx = hoursForDay.find(({ t }) => new Date(t).getHours() === 7)?.i;
-          if (bikeIdx != null) {
-            const code = h.weather_code[bikeIdx];
-            const mm = h.precipitation?.[bikeIdx] ?? 0;
-            const prob = h.precipitation_probability?.[bikeIdx] ?? 0;
-            const gust = h.wind_gusts_10m?.[bikeIdx] ?? h.wind_speed_10m?.[bikeIdx] ?? 0;
-            const temp = Math.round(h.apparent_temperature?.[bikeIdx] ?? h.temperature_2m[bikeIdx]);
-            const heavyRainCode = [65, 67, 82, 95, 96, 99].includes(code);
-            const snowCode = [71, 73, 75, 77, 85, 86].includes(code);
+      // Bike-to-work: weekdays only, checks 7–8am since that's the commute
+      // window. Suppressed on today if it's already past 8am (the question
+      // is no longer live). Heavy rain / strong gusts / snow break it;
+      // light drizzle is fine — just bring waterproofs.
+      const dayOfWeek = new Date(dayDate).getDay();
+      const isWeekday = dayOfWeek >= 1 && dayOfWeek <= 5;
+      const bikeTooLate = dayIndex === 0 && currentHour >= 8;
+      if (isWeekday && !bikeTooLate) {
+        const bikeIdx = hoursForDay.find(({ t }) => new Date(t).getHours() === 7)?.i;
+        if (bikeIdx != null) {
+          const code = h.weather_code[bikeIdx];
+          const mm = h.precipitation?.[bikeIdx] ?? 0;
+          const prob = h.precipitation_probability?.[bikeIdx] ?? 0;
+          const gust = h.wind_gusts_10m?.[bikeIdx] ?? h.wind_speed_10m?.[bikeIdx] ?? 0;
+          const temp = Math.round(h.apparent_temperature?.[bikeIdx] ?? h.temperature_2m[bikeIdx]);
+          const heavyRainCode = [65, 67, 82, 95, 96, 99].includes(code);
+          const snowCode = [71, 73, 75, 77, 85, 86].includes(code);
 
-            let canBike = true;
-            let reason;
-            if (heavyRainCode) {
-              canBike = false;
-              reason = `Heavy rain at 7am — take the car.`;
-            } else if (snowCode) {
-              canBike = false;
-              reason = `Snow at 7am — leave the bike.`;
-            } else if (mm >= 2) {
-              canBike = false;
-              reason = `${mm.toFixed(1)}mm of rain in the 7–8am hour — too wet.`;
-            } else if (gust >= 35) {
-              canBike = false;
-              reason = `${Math.round(gust)}mph gusts at 7am — risky on two wheels.`;
-            } else if (mm >= 0.5 || prob >= 50) {
-              reason = `Drizzle possible (${prob}%, ${mm.toFixed(1)}mm) — waterproofs on, but go.`;
-            } else if (gust >= 25) {
-              reason = `${temp}° and breezy (${Math.round(gust)}mph gusts) — watch for buffeting, otherwise fine.`;
-            } else if (prob >= 30) {
-              reason = `${temp}°, ${prob}% chance of a shower — worth a jacket.`;
-            } else {
-              reason = `${temp}° at 7am, dry and calm — perfect ride.`;
-            }
-
-            const bikeIcon = `<svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <circle cx="5.5" cy="17.5" r="3.5"/>
-              <circle cx="18.5" cy="17.5" r="3.5"/>
-              <circle cx="15" cy="5" r="1"/>
-              <path d="M12 17.5V14l-3-3 5-3 3 4h3"/>
-            </svg>`;
-
-            advisorsHTML += `
-              <div class="advisor ${canBike ? 'yes' : 'no'}">
-                <div class="advisor-icon">${bikeIcon}</div>
-                <div>
-                  <div class="advisor-title">Bike to work? ${canBike ? 'Yes' : 'No'}</div>
-                  <div class="advisor-reason">${reason}</div>
-                </div>
-              </div>
-            `;
+          let canBike = true;
+          let reason;
+          if (heavyRainCode) {
+            canBike = false;
+            reason = `Heavy rain at 7am — take the car.`;
+          } else if (snowCode) {
+            canBike = false;
+            reason = `Snow at 7am — leave the bike.`;
+          } else if (mm >= 2) {
+            canBike = false;
+            reason = `${mm.toFixed(1)}mm of rain in the 7–8am hour — too wet.`;
+          } else if (gust >= 35) {
+            canBike = false;
+            reason = `${Math.round(gust)}mph gusts at 7am — risky on two wheels.`;
+          } else if (mm >= 0.5 || prob >= 50) {
+            reason = `Drizzle possible (${prob}%, ${mm.toFixed(1)}mm) — waterproofs on, but go.`;
+          } else if (gust >= 25) {
+            reason = `${temp}° and breezy (${Math.round(gust)}mph gusts) — watch for buffeting, otherwise fine.`;
+          } else if (prob >= 30) {
+            reason = `${temp}°, ${prob}% chance of a shower — worth a jacket.`;
+          } else {
+            reason = `${temp}° at 7am, dry and calm — perfect ride.`;
           }
-        }
 
-        // Frost warning: for today, look at the remaining hours plus the
-        // overnight into tomorrow (until 8am) since frost forms after dark.
-        // For other days, look at that day's full hourly range.
-        let frostHours;
-        if (dayIndex === 0) {
-          const todayDate = d.time[0];
-          const tomorrowDate = d.time[1];
-          frostHours = h.time
-            .map((t, i) => ({
-              t,
-              i
-            }))
-            .filter(({
-              t
-            }) => {
-              const hr = new Date(t).getHours();
-              if (t.startsWith(todayDate) && hr >= currentHour) return true;
-              if (tomorrowDate && t.startsWith(tomorrowDate) && hr <= 8) return true;
-              return false;
-            });
-        } else {
-          frostHours = hoursForDay;
-        }
-        if (frostHours.length > 0) {
-          const temps = frostHours.map(({
-            i
-          }) => h.temperature_2m[i]);
-          const minTemp = Math.min(...temps);
-          if (minTemp < 2) {
-            const minIdx = frostHours[temps.indexOf(minTemp)].i;
-            const minTime = h.time[minIdx];
-            const minHr = new Date(minTime).getHours();
-            const minWhen = formatHour(minTime);
-            const rounded = Math.round(minTemp);
+          const bikeIcon = `<svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="5.5" cy="17.5" r="3.5"/>
+            <circle cx="18.5" cy="17.5" r="3.5"/>
+            <circle cx="15" cy="5" r="1"/>
+            <path d="M12 17.5V14l-3-3 5-3 3 4h3"/>
+          </svg>`;
 
-            // Whether the cold dip falls tonight or in tomorrow's pre-dawn hours
-            // changes both the headline ("tonight" vs "tomorrow morning") and the
-            // time label, since "5am" alone doesn't say which day.
-            let frostLabel = '';
-            let timeLabel = minWhen;
-            if (dayIndex === 0) {
-              const tomorrowDate = d.time[1];
-              const isTomorrow = tomorrowDate && minTime.startsWith(tomorrowDate);
-              if (isTomorrow) {
-                frostLabel = minHr < 12 ? 'tomorrow morning' : 'tomorrow';
-                timeLabel = `${minWhen} tomorrow`;
-              } else {
-                frostLabel = 'tonight';
-              }
-            }
-
-            advisorsHTML += `
-            <div class="advisor frost">
-              <div class="advisor-icon">
-                <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                  <line x1="12" y1="2" x2="12" y2="22"/>
-                  <line x1="2" y1="12" x2="22" y2="12"/>
-                  <line x1="4.93" y1="4.93" x2="19.07" y2="19.07"/>
-                  <line x1="19.07" y1="4.93" x2="4.93" y2="19.07"/>
-                  <polyline points="8 5 12 9 16 5"/>
-                  <polyline points="8 19 12 15 16 19"/>
-                  <polyline points="5 8 9 12 5 16"/>
-                  <polyline points="19 8 15 12 19 16"/>
-                </svg>
-              </div>
+          advisorsHTML += `
+            <div class="advisor ${canBike ? 'yes' : 'no'}">
+              <div class="advisor-icon">${bikeIcon}</div>
               <div>
-                <div class="advisor-title">Frost likely ${frostLabel}</div>
-                <div class="advisor-reason">Drops to ${rounded}°C around ${timeLabel} — cover tender plants, expect icy windscreens.</div>
+                <div class="advisor-title">Bike to work? ${canBike ? 'Yes' : 'No'}</div>
+                <div class="advisor-reason">${reason}</div>
               </div>
             </div>
           `;
-          }
         }
+      }
 
+      // Frost warning: for today, look at the remaining hours plus the
+      // overnight into tomorrow (until 8am) since frost forms after dark.
+      // For other days, look at that day's full hourly range.
+      let frostHours;
+      if (dayIndex === 0) {
+        const todayDate = d.time[0];
+        const tomorrowDate = d.time[1];
+        frostHours = h.time
+          .map((t, i) => ({
+            t,
+            i
+          }))
+          .filter(({
+            t
+          }) => {
+            const hr = new Date(t).getHours();
+            if (t.startsWith(todayDate) && hr >= currentHour) return true;
+            if (tomorrowDate && t.startsWith(tomorrowDate) && hr <= 8) return true;
+            return false;
+          });
+      } else {
+        frostHours = hoursForDay;
+      }
+      if (frostHours.length > 0) {
+        const temps = frostHours.map(({
+          i
+        }) => h.temperature_2m[i]);
+        const minTemp = Math.min(...temps);
+        if (minTemp < 2) {
+          const minIdx = frostHours[temps.indexOf(minTemp)].i;
+          const minTime = h.time[minIdx];
+          const minHr = new Date(minTime).getHours();
+          const minWhen = formatHour(minTime);
+          const rounded = Math.round(minTemp);
+
+          // Whether the cold dip falls tonight or in tomorrow's pre-dawn hours
+          // changes both the headline ("tonight" vs "tomorrow morning") and the
+          // time label, since "5am" alone doesn't say which day.
+          let frostLabel = '';
+          let timeLabel = minWhen;
+          if (dayIndex === 0) {
+            const tomorrowDate = d.time[1];
+            const isTomorrow = tomorrowDate && minTime.startsWith(tomorrowDate);
+            if (isTomorrow) {
+              frostLabel = minHr < 12 ? 'tomorrow morning' : 'tomorrow';
+              timeLabel = `${minWhen} tomorrow`;
+            } else {
+              frostLabel = 'tonight';
+            }
+          }
+
+          advisorsHTML += `
+          <div class="advisor frost">
+            <div class="advisor-icon">
+              <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <line x1="12" y1="2" x2="12" y2="22"/>
+                <line x1="2" y1="12" x2="22" y2="12"/>
+                <line x1="4.93" y1="4.93" x2="19.07" y2="19.07"/>
+                <line x1="19.07" y1="4.93" x2="4.93" y2="19.07"/>
+                <polyline points="8 5 12 9 16 5"/>
+                <polyline points="8 19 12 15 16 19"/>
+                <polyline points="5 8 9 12 5 16"/>
+                <polyline points="19 8 15 12 19 16"/>
+              </svg>
+            </div>
+            <div>
+              <div class="advisor-title">Frost likely ${frostLabel}</div>
+              <div class="advisor-reason">Drops to ${rounded}°C around ${timeLabel} — cover tender plants, expect icy windscreens.</div>
+            </div>
+          </div>
+        `;
+        }
+      }
+
+      if (!isSearchedLocation) {
         // UV warning: look at remaining daylight hours on the selected day.
         // Only warn if max UV during that window is 6+ (High or above).
         if (h.uv_index) {
@@ -2397,12 +2397,26 @@
     }
 
     async function goToOriginalLocation() {
-      if (!originalLocation) return;
       const btn = document.getElementById('btn-current');
       btn.disabled = true;
       try {
         isSearchedLocation = false;
-        await loadLocation(originalLocation.lat, originalLocation.lon, originalLocation.place);
+        let lat, lon, place;
+        try {
+          // Prefer a fresh GPS fix — if the user has moved since first load
+          // we want the button to genuinely mean "here, right now", not
+          // "back to whatever was cached at page-load".
+          ({ lat, lon } = await getPosition());
+          place = await reverseGeocode(lat, lon);
+          setCachedLocation(lat, lon, place);
+          originalLocation = { lat, lon, place };
+        } catch {
+          // Fall back to whatever was resolved at init — covers denied
+          // permissions, offline, etc.
+          if (!originalLocation) throw new Error('Location unavailable.');
+          ({ lat, lon, place } = originalLocation);
+        }
+        await loadLocation(lat, lon, place);
         btn.hidden = true;
       } catch (e) {
         showError(e.message);
