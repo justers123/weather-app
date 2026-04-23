@@ -1,7 +1,11 @@
 {
   "permissions": {
     "allow": [
-      "Bash(grep *)"
+      "Bash(grep *)",
+      "Bash(node --check /Users/justinsutton/Documents/static/experiments/weather-app/index.html)",
+      "Bash(awk '/<script>/,/<\\\\/script>/' /Users/justinsutton/Documents/static/experiments/weather-app/index.html)",
+      "Bash(sed '$s/<\\\\/script>.*//')",
+      "Bash(node --check /tmp/weather.js)"
     ]
   }
 }

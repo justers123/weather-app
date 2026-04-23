@@ -168,6 +168,115 @@
       min-height: 2em;
     }
 
+    .day-summary-btn {
+      margin-top: 0.75rem;
+      display: inline-flex;
+      align-items: center;
+      gap: 0.3rem;
+      padding: 0.3rem 0.6rem;
+      font-size: 0.7rem;
+      font-weight: 600;
+      font-family: inherit;
+      color: var(--indigo);
+      background: rgba(255, 255, 255, 0.55);
+      border: 1px solid rgba(59, 67, 122, 0.2);
+      border-radius: 999px;
+      cursor: pointer;
+      transition: background 0.15s ease, transform 0.15s ease;
+    }
+
+    .day-summary-btn:hover {
+      background: rgba(255, 255, 255, 0.9);
+      transform: translateY(-1px);
+    }
+
+    .day-card.selected .day-summary-btn {
+      background: rgba(235, 240, 200, 0.18);
+      color: var(--cream);
+      border-color: rgba(235, 240, 200, 0.35);
+    }
+
+    .day-card.selected .day-summary-btn:hover {
+      background: rgba(235, 240, 200, 0.32);
+    }
+
+    .summary-backdrop {
+      position: fixed;
+      inset: 0;
+      background: rgba(30, 35, 55, 0.55);
+      backdrop-filter: blur(4px);
+      -webkit-backdrop-filter: blur(4px);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 1.5rem;
+      z-index: 1000;
+      opacity: 0;
+      animation: summaryFadeIn 0.18s ease forwards;
+    }
+
+    @keyframes summaryFadeIn {
+      to { opacity: 1; }
+    }
+
+    .summary-modal {
+      background: var(--cream);
+      color: var(--indigo);
+      border-radius: 18px;
+      box-shadow: 0 20px 60px rgba(0, 0, 0, 0.35);
+      max-width: 520px;
+      width: 100%;
+      padding: 1.75rem;
+      transform: translateY(8px);
+      animation: summarySlideIn 0.22s ease forwards;
+    }
+
+    @keyframes summarySlideIn {
+      to { transform: translateY(0); }
+    }
+
+    .summary-modal-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 1rem;
+      margin-bottom: 1rem;
+    }
+
+    .summary-modal-title {
+      font-size: 1.2rem;
+      font-weight: 600;
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+
+    .summary-modal-close {
+      background: transparent;
+      border: none;
+      cursor: pointer;
+      color: var(--plum);
+      padding: 0.25rem;
+      border-radius: 8px;
+      font-family: inherit;
+      line-height: 0;
+    }
+
+    .summary-modal-close:hover {
+      background: rgba(94, 60, 92, 0.12);
+      color: var(--indigo);
+    }
+
+    .summary-modal-body {
+      font-size: 1rem;
+      line-height: 1.6;
+      color: var(--indigo);
+    }
+
+    .summary-modal-body p + p {
+      margin-top: 0.75rem;
+    }
+
     .status {
       text-align: center;
       padding: 3rem;
@@ -1685,6 +1794,276 @@
       }
     }
 
+    function buildDaySummary(dayIndex) {
+      const d = weatherData.daily;
+      const h = weatherData.hourly;
+      const dayDate = d.time[dayIndex];
+      const dayLabel = dayIndex === 0
+        ? 'today'
+        : new Date(dayDate).toLocaleDateString(undefined, { weekday: 'long' });
+
+      const hourIdxs = h.time
+        .map((t, i) => t.startsWith(dayDate) ? i : -1)
+        .filter(i => i >= 0);
+
+      const temps = hourIdxs.map(i => h.temperature_2m[i]);
+      const feels = hourIdxs.map(i => h.apparent_temperature?.[i] ?? h.temperature_2m[i]);
+      const probs = hourIdxs.map(i => h.precipitation_probability[i] ?? 0);
+      const mm = hourIdxs.map(i => h.precipitation?.[i] ?? 0);
+      const winds = hourIdxs.map(i => h.wind_speed_10m?.[i] ?? 0);
+      const uvs = hourIdxs.map(i => h.uv_index?.[i] ?? 0);
+      const codes = hourIdxs.map(i => h.weather_code[i]);
+
+      const hi = Math.round(Math.max(...temps));
+      const lo = Math.round(Math.min(...temps));
+      const feelsHi = Math.round(Math.max(...feels));
+      const maxProb = Math.max(...probs);
+      const totalMm = mm.reduce((a, b) => a + b, 0);
+      const maxWind = Math.round(Math.max(...winds));
+      const peakUV = Math.max(...uvs);
+
+      const isSun = c => c <= 1;
+      const isPartly = c => c === 2;
+      const isCloudy = c => c === 3 || c === 45 || c === 48;
+      const isRain = c => (c >= 51 && c <= 67) || (c >= 80 && c <= 82);
+      const isSnow = c => (c >= 71 && c <= 77) || (c >= 85 && c <= 86);
+      const isStorm = c => c >= 95;
+
+      const sunCount = codes.filter(isSun).length;
+      const rainCount = codes.filter(isRain).length;
+      const snowCount = codes.filter(isSnow).length;
+      const stormCount = codes.filter(isStorm).length;
+      const cloudyCount = codes.filter(c => isCloudy(c) || isPartly(c)).length;
+
+      const wettestIdx = mm.indexOf(Math.max(...mm));
+      const wettestHr = wettestIdx >= 0
+        ? new Date(h.time[hourIdxs[wettestIdx]]).getHours()
+        : null;
+      const uvPeakIdx = uvs.indexOf(peakUV);
+      const uvPeakHr = uvPeakIdx >= 0
+        ? new Date(h.time[hourIdxs[uvPeakIdx]]).getHours()
+        : null;
+
+      const fmtHr = hr => {
+        if (hr == null) return '';
+        const period = hr >= 12 ? 'pm' : 'am';
+        const h12 = hr % 12 === 0 ? 12 : hr % 12;
+        return `${h12}${period}`;
+      };
+
+      const pick = arr => arr[Math.floor(Math.random() * arr.length)];
+
+      let vibe;
+      if (stormCount > 0) vibe = 'storm';
+      else if (snowCount >= 2) vibe = 'snow';
+      else if (rainCount >= Math.max(4, codes.length * 0.5)) vibe = 'wet';
+      else if (rainCount > 0) vibe = 'mixed-wet';
+      else if (sunCount >= codes.length * 0.6) vibe = hi >= 22 ? 'glorious' : hi <= 4 ? 'crisp' : 'sunny';
+      else if (cloudyCount >= codes.length * 0.6) vibe = 'grey';
+      else vibe = 'mixed';
+
+      const openers = {
+        glorious: [
+          `${cap(dayLabel)} is a proper treat`,
+          `${cap(dayLabel)}'s a beauty`,
+          `${cap(dayLabel)}'s the sort of day you want to bottle`
+        ],
+        sunny: [
+          `${cap(dayLabel)}'s looking bright and friendly`,
+          `Plenty of sunshine on the menu for ${dayLabel}`,
+          `${cap(dayLabel)}'s shaping up nicely — sun's the headline act`
+        ],
+        crisp: [
+          `${cap(dayLabel)}'s one of those crisp, clear ones`,
+          `Bright but brisk for ${dayLabel}`,
+          `${cap(dayLabel)} is chilly-but-cheerful — clear skies, cold air`
+        ],
+        mixed: [
+          `${cap(dayLabel)}'s a bit of a mixed bag`,
+          `A classic "all-sorts" kind of day for ${dayLabel}`,
+          `${cap(dayLabel)} can't quite make up its mind`
+        ],
+        grey: [
+          `${cap(dayLabel)}'s leaning grey`,
+          `${cap(dayLabel)} is a cloudy affair`,
+          `A muted, overcast feel to ${dayLabel}`
+        ],
+        'mixed-wet': [
+          `${cap(dayLabel)}'s a bit damp in patches`,
+          `Showers drop in and out on ${dayLabel}`,
+          `${cap(dayLabel)} comes with some wet spells`
+        ],
+        wet: [
+          `${cap(dayLabel)}'s a soggy one`,
+          `Rain settles in for ${dayLabel}`,
+          `${cap(dayLabel)}'s the kind of day that keeps the brolly busy`
+        ],
+        snow: [
+          `${cap(dayLabel)}'s turning winter on you — snow in the mix`,
+          `Snow makes an appearance on ${dayLabel}`,
+          `${cap(dayLabel)}'s doing its best snowglobe impression`
+        ],
+        storm: [
+          `${cap(dayLabel)}'s got drama — thunderstorms on the bill`,
+          `Thundery weather rolls through on ${dayLabel}`,
+          `${cap(dayLabel)} brings a rumble or two`
+        ]
+      };
+
+      const tempDescriptors = hi >= 27 ? 'toasty'
+        : hi >= 22 ? 'warm'
+        : hi >= 16 ? 'mild'
+        : hi >= 10 ? 'cool'
+        : hi >= 4 ? 'chilly'
+        : 'properly cold';
+
+      const tempPhrase = (() => {
+        const gap = hi - lo;
+        const feelsGap = Math.abs(feelsHi - hi) >= 3
+          ? ` (feels more like ${feelsHi}° when you're out in it)`
+          : '';
+        if (gap >= 10) {
+          return `Highs of ${hi}°C${feelsGap}, dipping to a much cooler ${lo}°C — worth layering up.`;
+        }
+        return `Highs around ${hi}°C${feelsGap} and lows of ${lo}°C — ${tempDescriptors} overall.`;
+      })();
+
+      const tips = [];
+      if (vibe === 'wet' || totalMm >= 3) {
+        tips.push(pick([
+          `You'll want waterproofs — around ${totalMm.toFixed(1)}mm of rain on the ledger, peaking near ${fmtHr(wettestHr)}.`,
+          `Keep the umbrella handy; the wettest patch hits around ${fmtHr(wettestHr)} with about ${totalMm.toFixed(1)}mm total.`,
+          `Plan indoor backups — rain totals reach roughly ${totalMm.toFixed(1)}mm, heaviest near ${fmtHr(wettestHr)}.`
+        ]));
+      } else if (vibe === 'mixed-wet' || (maxProb >= 40 && totalMm >= 0.5)) {
+        tips.push(pick([
+          `Pack an umbrella just in case — rain chance peaks at ${maxProb}%.`,
+          `There's a ${maxProb}% chance of showers sneaking in, so a light waterproof's worth tossing in the bag.`,
+          `Showers are on the table (peak ${maxProb}%), so don't be caught out.`
+        ]));
+      }
+      if (peakUV >= 6 && vibe !== 'storm' && vibe !== 'wet') {
+        tips.push(pick([
+          `Sun's got a bite — UV peaks at ${Math.round(peakUV)} around ${fmtHr(uvPeakHr)}, so sunscreen if you'll be out.`,
+          `Slap on some SPF before heading out; UV hits ${Math.round(peakUV)} near ${fmtHr(uvPeakHr)}.`,
+          `Unprotected skin burns quick today — UV tops ${Math.round(peakUV)} around ${fmtHr(uvPeakHr)}.`
+        ]));
+      }
+      if (maxWind >= 40) {
+        tips.push(pick([
+          `Breezy too — gusts reach ${maxWind} km/h, so anything light will fly.`,
+          `The wind's putting in a shift, topping ${maxWind} km/h — hold onto your hat.`,
+          `Expect proper gusts up to ${maxWind} km/h.`
+        ]));
+      }
+      if (lo <= 1 && vibe !== 'snow' && vibe !== 'storm') {
+        tips.push(pick([
+          `Cold enough for frost overnight — cover tender plants and expect icy screens in the morning.`,
+          `Frost's on the cards with lows of ${lo}°C — wrap up warm.`
+        ]));
+      }
+
+      const signoffs = {
+        glorious: ['Enjoy every minute.', 'Get out there.', 'Treasure this one.'],
+        sunny: ['Make the most of it.', 'Lovely day to be outside.', 'Soak it up.'],
+        crisp: ['Wrap up and enjoy the clarity.', 'Scarf weather — but pretty.', 'Cold hands, happy heart.'],
+        mixed: ['Be ready for anything.', 'Dress in layers and roll with it.', 'A bring-a-jacket kind of day.'],
+        grey: ['Cosy vibes all round.', 'Good day for a hot drink.', 'Nothing wrong with a muted one.'],
+        'mixed-wet': ['Pack smart, go anyway.', 'Keep a light waterproof on hand.', 'Plans with a plan B.'],
+        wet: ['Perfect excuse to stay in.', 'Cosy indoor day awaits.', 'Tea, blanket, sorted.'],
+        snow: ['Dress properly and enjoy the novelty.', 'Snow boots time.', 'Careful on the roads.'],
+        storm: ['Keep an eye on the sky.', 'Indoor plans win today.', 'Batten down and stay safe.']
+      };
+
+      const opener = pick(openers[vibe]);
+      const signoff = pick(signoffs[vibe]);
+
+      const para1 = `${opener}. ${tempPhrase}`;
+      const para2 = tips.length
+        ? `${tips.join(' ')} ${signoff}`
+        : `Not a lot to worry about weather-wise — an easy-going day. ${signoff}`;
+
+      return [para1, para2];
+
+      function cap(s) { return s.charAt(0).toUpperCase() + s.slice(1); }
+    }
+
+    let summaryReturnFocus = null;
+
+    function openSummaryModal(dayIndex, triggerEl) {
+      closeSummaryModal();
+      summaryReturnFocus = triggerEl || null;
+
+      const dayDate = weatherData.daily.time[dayIndex];
+      const titleLabel = dayIndex === 0
+        ? 'Today'
+        : new Date(dayDate).toLocaleDateString(undefined, {
+            weekday: 'long',
+            month: 'long',
+            day: 'numeric'
+          });
+
+      const paragraphs = buildDaySummary(dayIndex);
+
+      const backdrop = document.createElement('div');
+      backdrop.className = 'summary-backdrop';
+      backdrop.setAttribute('role', 'dialog');
+      backdrop.setAttribute('aria-modal', 'true');
+      backdrop.setAttribute('aria-label', `${titleLabel} summary`);
+      backdrop.innerHTML = `
+        <div class="summary-modal" role="document">
+          <div class="summary-modal-header">
+            <div class="summary-modal-title">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M12 3l1.8 4.6L18 9l-4.2 2.4L12 16l-1.8-4.6L6 9l4.2-1.4z"/>
+                <path d="M19 15l.8 1.8L22 18l-2.2.8L19 21l-.8-2.2L16 18l2.2-1.2z"/>
+              </svg>
+              <span>${titleLabel}</span>
+            </div>
+            <button type="button" class="summary-modal-close" aria-label="Close summary">
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                <line x1="18" y1="6" x2="6" y2="18"/>
+                <line x1="6" y1="6" x2="18" y2="18"/>
+              </svg>
+            </button>
+          </div>
+          <div class="summary-modal-body">
+            ${paragraphs.map(p => `<p>${p}</p>`).join('')}
+          </div>
+        </div>
+      `;
+
+      backdrop.addEventListener('click', e => {
+        if (e.target === backdrop) closeSummaryModal();
+      });
+      backdrop.querySelector('.summary-modal-close')
+        .addEventListener('click', closeSummaryModal);
+
+      document.body.appendChild(backdrop);
+      document.body.style.overflow = 'hidden';
+      document.addEventListener('keydown', summaryKeyHandler);
+
+      requestAnimationFrame(() => {
+        backdrop.querySelector('.summary-modal-close').focus();
+      });
+    }
+
+    function closeSummaryModal() {
+      const existing = document.querySelector('.summary-backdrop');
+      if (!existing) return;
+      existing.remove();
+      document.body.style.overflow = '';
+      document.removeEventListener('keydown', summaryKeyHandler);
+      if (summaryReturnFocus && document.contains(summaryReturnFocus)) {
+        summaryReturnFocus.focus();
+      }
+      summaryReturnFocus = null;
+    }
+
+    function summaryKeyHandler(e) {
+      if (e.key === 'Escape') closeSummaryModal();
+    }
+
     function selectDay(index, scrollEdge) {
       selectedDayIndex = index;
       document.querySelectorAll('.day-card').forEach((el, i) => {
@@ -1714,6 +2093,12 @@
             <span class="temp-min">${Math.round(d.temperature_2m_min[i])}°</span>
           </div>
           <div class="day-desc">${desc}</div>
+          <button type="button" class="day-summary-btn" data-summary="${i}" aria-label="Show summary for ${dayName(date, i)}">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M12 3l1.8 4.6L18 9l-4.2 2.4L12 16l-1.8-4.6L6 9l4.2-1.4z"/>
+            </svg>
+            Summary
+          </button>
         </div>
       `;
       }).join('');
@@ -1729,6 +2114,19 @@
           if (e.key === 'Enter' || e.key === ' ') {
             e.preventDefault();
             selectDay(idx);
+          }
+        });
+      });
+
+      document.querySelectorAll('.day-summary-btn').forEach(btn => {
+        btn.addEventListener('click', e => {
+          e.stopPropagation();
+          const idx = Number(btn.dataset.summary);
+          openSummaryModal(idx, btn);
+        });
+        btn.addEventListener('keydown', e => {
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.stopPropagation();
           }
         });
       });
