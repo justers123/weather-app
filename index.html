@@ -1116,13 +1116,47 @@
       });
     }
 
+    // ISO alpha-2 → short display name. Geocoders sometimes return the full
+    // UN-style long form (e.g. "United Kingdom of Great Britain and Northern
+    // Ireland (the)") which is too long for the title bar.
+    const COUNTRY_SHORT = {
+      GB: 'UK',
+      US: 'USA',
+      AE: 'UAE',
+      KR: 'South Korea',
+      KP: 'North Korea',
+      CD: 'DR Congo',
+      RU: 'Russia',
+      CZ: 'Czechia',
+      TW: 'Taiwan',
+      IR: 'Iran',
+      SY: 'Syria',
+      VE: 'Venezuela',
+      BO: 'Bolivia',
+      LA: 'Laos',
+      MD: 'Moldova',
+      MK: 'North Macedonia',
+      TZ: 'Tanzania',
+      MM: 'Myanmar',
+      PS: 'Palestine',
+      VA: 'Vatican City'
+    };
+
+    function shortCountry(code, name) {
+      const key = (code || '').toUpperCase();
+      if (COUNTRY_SHORT[key]) return COUNTRY_SHORT[key];
+      return (name || '').replace(/\s*\(the\)\s*$/i, '').trim();
+    }
+
     async function reverseGeocode(lat, lon) {
       // Open-Meteo reverse geocoding via their search endpoint isn't reverse-capable,
       // so use the free BigDataCloud client-side reverse geocoder (no key).
       try {
         const r = await fetch(`https://api.bigdatacloud.net/data/reverse-geocode-client?latitude=${lat}&longitude=${lon}&localityLanguage=en`);
         const d = await r.json();
-        return d.city || d.locality || d.principalSubdivision || 'Unknown';
+        const city = d.city || d.locality || d.principalSubdivision || 'Unknown';
+        const country = shortCountry(d.countryCode, d.countryName);
+        return country ? `${city}, ${country}` : city;
       } catch (e) {
         return `${lat.toFixed(2)}, ${lon.toFixed(2)}`;
       }
@@ -1197,40 +1231,29 @@
     }
 
     // Pick an outfit for the selected day based on apparent temp + rain + uv + snow.
-    // Samples the 11am–2pm window so the suggestion reflects the active part of
-    // the day rather than whatever hour the user happens to check.
+    // Temp/UV sample the 11am–2pm "active" window so the outfit reflects midday
+    // conditions, but rain and wind scan the whole day so showers later on still
+    // earn an umbrella.
     function chooseOutfit(dayIndex) {
       const h = weatherData.hourly;
       const dayDate = weatherData.daily.time[dayIndex];
-      const windowIdxs = h.time
-        .map((t, i) => ({
-          t,
-          i
-        }))
-        .filter(({
-          t
-        }) => {
-          if (!t.startsWith(dayDate)) return false;
-          const hr = new Date(t).getHours();
-          return hr >= 11 && hr <= 14;
-        })
-        .map(({
-          i
-        }) => i);
+      const dayIdxs = h.time
+        .map((t, i) => ({ t, i }))
+        .filter(({ t }) => t.startsWith(dayDate))
+        .map(({ i }) => i);
+      if (!dayIdxs.length) return null;
 
-      const sampleIdxs = windowIdxs.length ?
-        windowIdxs :
-        (() => {
-          const fallback = h.time.findIndex(t => t.startsWith(dayDate));
-          return fallback >= 0 ? [fallback] : [];
-        })();
-      if (!sampleIdxs.length) return null;
+      const activeIdxs = dayIdxs.filter(i => {
+        const hr = new Date(h.time[i]).getHours();
+        return hr >= 11 && hr <= 14;
+      });
+      const sampleIdxs = activeIdxs.length ? activeIdxs : [dayIdxs[0]];
 
       const apparent = sampleIdxs.map(i => h.apparent_temperature?.[i] ?? h.temperature_2m[i]);
       const temp = Math.round(apparent.reduce((a, b) => a + b, 0) / apparent.length);
-      const rain = Math.max(...sampleIdxs.map(i => h.precipitation_probability[i] ?? 0));
-      const rainMm = Math.max(...sampleIdxs.map(i => h.precipitation?.[i] ?? 0));
-      const wind = Math.max(...sampleIdxs.map(i => h.wind_speed_10m?.[i] ?? 0));
+      const rain = Math.max(...dayIdxs.map(i => h.precipitation_probability[i] ?? 0));
+      const rainMm = Math.max(...dayIdxs.map(i => h.precipitation?.[i] ?? 0));
+      const wind = Math.max(...dayIdxs.map(i => h.wind_speed_10m?.[i] ?? 0));
       const uv = Math.max(...sampleIdxs.map(i => h.uv_index?.[i] ?? 0));
       const codeCounts = {};
       sampleIdxs.forEach(i => {
@@ -2254,7 +2277,7 @@
           return;
         }
         searchResults.innerHTML = results.map((it, i) => {
-          const sub = [it.admin1, it.country].filter(Boolean).join(', ');
+          const sub = [it.admin1, shortCountry(it.country_code, it.country)].filter(Boolean).join(', ');
           return `<button type="button" class="search-result" data-idx="${i}">
             <strong>${it.name}</strong>
             <span>${sub}</span>
@@ -2275,7 +2298,9 @@
       btnSearch.disabled = true;
       try {
         isSearchedLocation = true;
-        await loadLocation(item.latitude, item.longitude, item.name);
+        const country = shortCountry(item.country_code, item.country);
+        const place = country ? `${item.name}, ${country}` : item.name;
+        await loadLocation(item.latitude, item.longitude, place);
         document.getElementById('btn-current').hidden = false;
       } catch (e) {
         showError(e.message);
