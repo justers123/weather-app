@@ -872,7 +872,7 @@
 
     async function getWeather(lat, lon) {
       const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}` +
-        `&hourly=temperature_2m,apparent_temperature,weather_code,precipitation_probability,wind_speed_10m,uv_index` +
+        `&hourly=temperature_2m,apparent_temperature,weather_code,precipitation_probability,precipitation,wind_speed_10m,uv_index` +
         `&daily=weather_code,temperature_2m_max,temperature_2m_min,sunrise,sunset,uv_index_max` +
         `&wind_speed_unit=mph&timezone=auto&forecast_days=7`;
       const r = await fetch(url);
@@ -949,6 +949,8 @@
       const apparent = sampleIdxs.map(i => h.apparent_temperature?.[i] ?? h.temperature_2m[i]);
       const temp = Math.round(apparent.reduce((a, b) => a + b, 0) / apparent.length);
       const rain = Math.max(...sampleIdxs.map(i => h.precipitation_probability[i] ?? 0));
+      const rainMm = Math.max(...sampleIdxs.map(i => h.precipitation?.[i] ?? 0));
+      const wind = Math.max(...sampleIdxs.map(i => h.wind_speed_10m?.[i] ?? 0));
       const uv = Math.max(...sampleIdxs.map(i => h.uv_index?.[i] ?? 0));
       const codeCounts = {};
       sampleIdxs.forEach(i => {
@@ -958,26 +960,41 @@
       const code = Number(Object.entries(codeCounts).sort((a, b) => b[1] - a[1])[0][0]);
       const isSnow = [71, 73, 75, 77, 85, 86].includes(code);
 
-      const outfit = { headwear: null, eyewear: null, scarf: false, torso: 'longsleeve', legs: 'trousers', umbrella: false };
+      const outfit = { headwear: null, eyewear: null, scarf: false, torso: 'longsleeve', legs: 'trousers', umbrella: false, windy: false };
       if (temp >= 22) { outfit.torso = 'tshirt'; outfit.legs = 'shorts'; }
       else if (temp >= 16) { outfit.torso = 'tshirt'; }
       else if (temp >= 10) { outfit.torso = 'longsleeve'; }
       else if (temp >= 2) { outfit.torso = 'coat'; }
       else { outfit.torso = 'coat'; outfit.scarf = true; outfit.headwear = 'beanie'; }
 
-      if (rain >= 40) outfit.umbrella = true;
-      if (rain >= 70) outfit.torso = 'raincoat';
+      // Probability and amount must both clear the bar — high prob of trace
+      // drizzle (e.g. 60% / 0.1mm) isn't worth a brolly or raincoat.
+      if (rain >= 40 && rainMm >= 0.3) outfit.umbrella = true;
+      if (rain >= 70 && rainMm >= 1) outfit.torso = 'raincoat';
+
+      // Stiff breeze argues for a windbreaker; a gale renders an umbrella useless
+      // and pushes you into a raincoat if there's any meaningful rain.
+      if (wind >= 15 && temp < 18 && outfit.torso === 'longsleeve') outfit.torso = 'coat';
+      if (wind >= 25) {
+        outfit.windy = true;
+        outfit.umbrella = false;
+        if (rainMm >= 0.5) outfit.torso = 'raincoat';
+      }
+
       if (uv >= 5 && temp >= 16 && !outfit.umbrella) outfit.eyewear = 'sunglasses';
       if (isSnow) { outfit.headwear = 'beanie'; outfit.scarf = true; }
 
-      return { outfit, temp, rain, isSnow };
+      return { outfit, temp, rain, rainMm, wind, isSnow };
     }
 
-    function captionFor({ outfit, temp, rain, isSnow }) {
+    function captionFor({ outfit, temp, rain, wind, isSnow }) {
+      const mph = Math.round(wind);
       if (isSnow) return `${temp}° and snowy — full winter kit.`;
+      if (outfit.torso === 'raincoat' && outfit.windy) return `${temp}° with rain and ${mph}mph wind — waterproofs, brolly is useless.`;
       if (outfit.torso === 'raincoat') return `${temp}° with ${rain}% rain — full waterproofs.`;
       if (outfit.umbrella && outfit.torso === 'coat') return `${temp}° and soggy — coat and brolly.`;
       if (outfit.umbrella) return `${temp}° with ${rain}% rain — pack a brolly.`;
+      if (outfit.windy) return `${temp}° and blowy (${mph}mph) — windproof layer.`;
       if (outfit.scarf) return `${temp}° — properly cold, wrap up.`;
       if (outfit.torso === 'coat') return `${temp}° — coat required.`;
       if (outfit.legs === 'shorts') return `${temp}° — shorts and t-shirt, enjoy.`;
@@ -1060,26 +1077,41 @@
       return 'V High';
     }
 
-    // Pick the most frequent weather code between 7am and 4pm for the given day.
-    // Falls back to null if there aren't any hourly entries in that window.
-    function daytimeWeatherCode(hourly, dayDateStr) {
+    // Rough WMO severity ordering — higher = more disruptive / worth flagging
+    // even when it isn't the most common code of the day.
+    function codeSeverity(code) {
+      if (code >= 95) return 9; // thunderstorm
+      if (code >= 80) return 8; // showers
+      if (code >= 71) return 7; // snow
+      if (code >= 61) return 6; // rain
+      if (code >= 51) return 5; // drizzle
+      if (code >= 45) return 4; // fog
+      return code; // 0 clear → 3 overcast
+    }
+
+    // Summarise a day's weather between sunrise and sunset. If two or more hours
+    // of fog/precip/storm appear, promote the most severe of those over a sunnier
+    // mode — otherwise a brief afternoon storm gets hidden by a sunny morning.
+    function daytimeWeatherCode(hourly, dayDateStr, sunriseISO, sunsetISO) {
+      const startHr = sunriseISO ? new Date(sunriseISO).getHours() : 7;
+      const endHr = sunsetISO ? new Date(sunsetISO).getHours() : 16;
       const counts = {};
       hourly.time.forEach((t, i) => {
         if (!t.startsWith(dayDateStr)) return;
         const hr = new Date(t).getHours();
-        if (hr < 7 || hr > 16) return;
+        if (hr < startHr || hr > endHr) return;
         const code = hourly.weather_code[i];
         counts[code] = (counts[code] || 0) + 1;
       });
-      let best = null,
-        bestCount = 0;
-      for (const [c, n] of Object.entries(counts)) {
-        if (n > bestCount) {
-          bestCount = n;
-          best = Number(c);
-        }
-      }
-      return best;
+      const entries = Object.entries(counts).map(([c, n]) => ({ code: Number(c), count: n }));
+      if (!entries.length) return null;
+
+      const meaningful = entries
+        .filter(e => e.code >= 45 && e.count >= 2)
+        .sort((a, b) => codeSeverity(b.code) - codeSeverity(a.code) || b.count - a.count);
+      if (meaningful.length) return meaningful[0].code;
+
+      return entries.sort((a, b) => b.count - a.count)[0].code;
     }
 
     function dailyMaxPollen(pollen, dayDateStr) {
@@ -1181,20 +1213,31 @@
       // All are hidden for searched cities since they're personal decisions.
       let advisorsHTML = '';
       if (!isSearchedLocation) {
-        // Washing-line: for today, start from whichever is later of "now"
-        // or 7am. For other days, the full 7am–4pm window applies.
-        const washingStart = dayIndex === 0 ? Math.max(7, currentHour) : 7;
+        // Washing-line: daylight hours, since stuff dries by sun + warmth.
+        // For today, start from whichever is later of "now" or sunrise.
+        const sunriseHr = new Date(d.sunrise[dayIndex]).getHours();
+        const sunsetHr = new Date(d.sunset[dayIndex]).getHours();
+        const washingStart = dayIndex === 0 ? Math.max(sunriseHr, currentHour) : sunriseHr;
+        const washingEnd = sunsetHr;
         const washingHours = hoursForDay.filter(({ t }) => {
           const hr = new Date(t).getHours();
-          return hr >= washingStart && hr <= 16;
+          return hr >= washingStart && hr <= washingEnd;
         });
         if (washingHours.length > 0) {
-          const probs = washingHours.map(({ i }) => h.precipitation_probability[i] ?? 0);
-          const maxProb = Math.max(...probs);
-          const canHang = probs.every(p => p < 30);
-          const windowLabel = washingStart === 7
-            ? '7am–4pm'
-            : `${washingStart > 12 ? washingStart - 12 : washingStart}${washingStart >= 12 ? 'pm' : 'am'}–4pm`;
+          const maxProb = Math.max(...washingHours.map(({ i }) => h.precipitation_probability[i] ?? 0));
+          // Bar must be cleared on both axes — a 35% chance of zero-mm fizzle
+          // shouldn't block hanging out, only a real risk of measurable rain.
+          const canHang = washingHours.every(({ i }) => {
+            const p = h.precipitation_probability[i] ?? 0;
+            const mm = h.precipitation?.[i] ?? 0;
+            return !(p >= 30 && mm >= 0.2);
+          });
+          const fmtHour12 = hr => {
+            const period = hr >= 12 ? 'pm' : 'am';
+            const h12 = hr % 12 === 0 ? 12 : hr % 12;
+            return `${h12}${period}`;
+          };
+          const windowLabel = `${fmtHour12(washingStart)}–${fmtHour12(washingEnd)}`;
           advisorsHTML += `
           <div class="advisor ${canHang ? 'yes' : 'no'}">
             <div class="advisor-icon">${canHang
@@ -1376,7 +1419,7 @@
 
       const d = data.daily;
       const daysHTML = d.time.map((date, i) => {
-        const summaryCode = daytimeWeatherCode(data.hourly, date) ?? d.weather_code[i];
+        const summaryCode = daytimeWeatherCode(data.hourly, date, d.sunrise[i], d.sunset[i]) ?? d.weather_code[i];
         const [desc, icon] = describe(summaryCode);
         const weekday = new Date(date).getDay();
         const isWeekend = weekday === 0 || weekday === 6;
