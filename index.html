@@ -924,26 +924,38 @@
     }
 
     // Pick an outfit for the selected day based on apparent temp + rain + uv + snow.
-    // For today uses the current hour; for other days uses 1pm as a representative sample.
+    // Samples the 11am–2pm window so the suggestion reflects the active part of
+    // the day rather than whatever hour the user happens to check.
     function chooseOutfit(dayIndex) {
       const h = weatherData.hourly;
       const dayDate = weatherData.daily.time[dayIndex];
-      let idx;
-      if (dayIndex === 0) {
-        const currentHour = Number(new Date().toLocaleString('en-GB', {
-          timeZone: weatherData.timezone, hour: '2-digit', hour12: false
-        }));
-        idx = h.time.findIndex(t => t.startsWith(dayDate) && new Date(t).getHours() === currentHour);
-      } else {
-        idx = h.time.findIndex(t => t.startsWith(dayDate) && new Date(t).getHours() === 13);
-      }
-      if (idx < 0) idx = h.time.findIndex(t => t.startsWith(dayDate));
-      if (idx < 0) return null;
+      const windowIdxs = h.time
+        .map((t, i) => ({ t, i }))
+        .filter(({ t }) => {
+          if (!t.startsWith(dayDate)) return false;
+          const hr = new Date(t).getHours();
+          return hr >= 11 && hr <= 14;
+        })
+        .map(({ i }) => i);
 
-      const temp = Math.round(h.apparent_temperature?.[idx] ?? h.temperature_2m[idx]);
-      const rain = h.precipitation_probability[idx] ?? 0;
-      const uv = h.uv_index?.[idx] ?? 0;
-      const code = h.weather_code[idx];
+      const sampleIdxs = windowIdxs.length
+        ? windowIdxs
+        : (() => {
+            const fallback = h.time.findIndex(t => t.startsWith(dayDate));
+            return fallback >= 0 ? [fallback] : [];
+          })();
+      if (!sampleIdxs.length) return null;
+
+      const apparent = sampleIdxs.map(i => h.apparent_temperature?.[i] ?? h.temperature_2m[i]);
+      const temp = Math.round(apparent.reduce((a, b) => a + b, 0) / apparent.length);
+      const rain = Math.max(...sampleIdxs.map(i => h.precipitation_probability[i] ?? 0));
+      const uv = Math.max(...sampleIdxs.map(i => h.uv_index?.[i] ?? 0));
+      const codeCounts = {};
+      sampleIdxs.forEach(i => {
+        const c = h.weather_code[i];
+        codeCounts[c] = (codeCounts[c] || 0) + 1;
+      });
+      const code = Number(Object.entries(codeCounts).sort((a, b) => b[1] - a[1])[0][0]);
       const isSnow = [71, 73, 75, 77, 85, 86].includes(code);
 
       const outfit = { headwear: null, eyewear: null, scarf: false, torso: 'longsleeve', legs: 'trousers', umbrella: false };
