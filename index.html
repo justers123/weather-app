@@ -283,6 +283,38 @@
       color: var(--mint);
     }
 
+    .hour-card.day-jump {
+      background: var(--cream);
+      border-color: var(--teal);
+      color: var(--indigo);
+      cursor: pointer;
+      font-family: inherit;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 0.4rem;
+    }
+
+    .hour-card.day-jump:hover {
+      background: var(--mint);
+    }
+
+    .day-jump-arrow {
+      font-size: 1.5rem;
+      font-weight: 600;
+      line-height: 1;
+    }
+
+    .day-jump-label {
+      font-size: 0.85rem;
+      font-weight: 600;
+    }
+
+    .precip-bar.placeholder {
+      background: transparent;
+    }
+
     .precip-bars {
       display: flex;
       gap: 0.5rem;
@@ -1150,7 +1182,7 @@
       });
     }
 
-    function renderDetailPanel(dayIndex) {
+    function renderDetailPanel(dayIndex, scrollEdge) {
       const d = weatherData.daily;
       const h = weatherData.hourly;
       const dayDate = d.time[dayIndex];
@@ -1200,10 +1232,29 @@
       `;
       }).join('');
 
-      const precipBarsHTML = hoursForDay.map(({ i }) => {
-        const p = h.precipitation_probability[i] ?? 0;
-        return `<div class="precip-bar" style="--p:${p}%" title="${p}% chance of rain"></div>`;
-      }).join('');
+      const hasPrev = dayIndex > 0;
+      const hasNext = dayIndex < d.time.length - 1;
+      const placeholderBar = '<div class="precip-bar placeholder"></div>';
+      const precipBarsHTML =
+        (hasPrev ? placeholderBar : '') +
+        hoursForDay.map(({ i }) => {
+          const p = h.precipitation_probability[i] ?? 0;
+          return `<div class="precip-bar" style="--p:${p}%" title="${p}% chance of rain"></div>`;
+        }).join('') +
+        (hasNext ? placeholderBar : '');
+
+      const prevJumpHTML = hasPrev ? `
+        <button type="button" class="hour-card day-jump" data-jump="${dayIndex - 1}" data-jump-edge="end" aria-label="View ${dayName(d.time[dayIndex - 1], dayIndex - 1)}">
+          <div class="day-jump-arrow">←</div>
+          <div class="day-jump-label">${dayName(d.time[dayIndex - 1], dayIndex - 1)}</div>
+        </button>
+      ` : '';
+      const nextJumpHTML = hasNext ? `
+        <button type="button" class="hour-card day-jump" data-jump="${dayIndex + 1}" data-jump-edge="start" aria-label="View ${dayName(d.time[dayIndex + 1], dayIndex + 1)}">
+          <div class="day-jump-arrow">→</div>
+          <div class="day-jump-label">${dayName(d.time[dayIndex + 1], dayIndex + 1)}</div>
+        </button>
+      ` : '';
 
       const title = dayIndex === 0 ?
         'Today · Hourly' :
@@ -1408,27 +1459,44 @@
       </div>
       <div class="hourly-scroll">
         <div class="precip-bars">${precipBarsHTML}</div>
-        <div class="hourly-row">${hoursHTML}</div>
+        <div class="hourly-row">${prevJumpHTML}${hoursHTML}${nextJumpHTML}</div>
       </div>
       ${dressMeHTML}
     `;
 
-      // Default the hourly strip's scroll position: "Now" for today, 7am for
-      // other days. Earlier hours remain accessible by scrolling back.
+      // Hook up the prev/next-day jump cards at each end of the hourly strip.
+      document.querySelectorAll('#detail-panel .day-jump').forEach(btn => {
+        btn.addEventListener('click', () => {
+          selectDay(Number(btn.dataset.jump), btn.dataset.jumpEdge);
+        });
+      });
+
+      // Default scroll position: "Now" for today, 7am for other days. When the
+      // user arrives via a jump card we land at the matching edge instead so it
+      // feels like the strip just continues into the next/previous day.
       const scroller = document.querySelector('#detail-panel .hourly-scroll');
-      const scrollToHour = dayIndex === 0 ? currentHour : 7;
-      const target = scroller && scroller.querySelector(`.hour-card[data-hour="${scrollToHour}"]`);
-      if (scroller && target) {
-        scroller.scrollLeft = target.offsetLeft - scroller.querySelector('.hourly-row').offsetLeft;
+      const row = scroller && scroller.querySelector('.hourly-row');
+      if (scroller && row) {
+        if (scrollEdge === 'start') {
+          scroller.scrollLeft = 0;
+        } else if (scrollEdge === 'end') {
+          scroller.scrollLeft = scroller.scrollWidth;
+        } else {
+          const scrollToHour = dayIndex === 0 ? currentHour : 7;
+          const target = scroller.querySelector(`.hour-card[data-hour="${scrollToHour}"]`);
+          if (target) {
+            scroller.scrollLeft = target.offsetLeft - row.offsetLeft;
+          }
+        }
       }
     }
 
-    function selectDay(index) {
+    function selectDay(index, scrollEdge) {
       selectedDayIndex = index;
       document.querySelectorAll('.day-card').forEach((el, i) => {
         el.classList.toggle('selected', i === index);
       });
-      renderDetailPanel(index);
+      renderDetailPanel(index, scrollEdge);
     }
 
     function render(data, locationName) {
