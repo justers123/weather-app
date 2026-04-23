@@ -1198,7 +1198,7 @@
 
     async function getWeather(lat, lon) {
       const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}` +
-        `&hourly=temperature_2m,apparent_temperature,weather_code,precipitation_probability,precipitation,wind_speed_10m,uv_index` +
+        `&hourly=temperature_2m,apparent_temperature,weather_code,precipitation_probability,precipitation,wind_speed_10m,wind_gusts_10m,uv_index` +
         `&daily=weather_code,temperature_2m_max,temperature_2m_min,sunrise,sunset,uv_index_max` +
         `&wind_speed_unit=mph&timezone=auto&forecast_days=7`;
       const r = await fetch(url);
@@ -1655,6 +1655,67 @@
       }
 
       if (!isSearchedLocation) {
+        // Bike-to-work: weekdays only, checks 7–8am since that's the commute
+        // window. Suppressed on today if it's already past 8am (the question
+        // is no longer live). Heavy rain / strong gusts / snow break it;
+        // light drizzle is fine — just bring waterproofs.
+        const dayOfWeek = new Date(dayDate).getDay();
+        const isWeekday = dayOfWeek >= 1 && dayOfWeek <= 5;
+        const bikeTooLate = dayIndex === 0 && currentHour >= 8;
+        if (isWeekday && !bikeTooLate) {
+          const bikeIdx = hoursForDay.find(({ t }) => new Date(t).getHours() === 7)?.i;
+          if (bikeIdx != null) {
+            const code = h.weather_code[bikeIdx];
+            const mm = h.precipitation?.[bikeIdx] ?? 0;
+            const prob = h.precipitation_probability?.[bikeIdx] ?? 0;
+            const gust = h.wind_gusts_10m?.[bikeIdx] ?? h.wind_speed_10m?.[bikeIdx] ?? 0;
+            const temp = Math.round(h.apparent_temperature?.[bikeIdx] ?? h.temperature_2m[bikeIdx]);
+            const heavyRainCode = [65, 67, 82, 95, 96, 99].includes(code);
+            const snowCode = [71, 73, 75, 77, 85, 86].includes(code);
+
+            let canBike = true;
+            let reason;
+            if (heavyRainCode) {
+              canBike = false;
+              reason = `Heavy rain at 7am — take the car.`;
+            } else if (snowCode) {
+              canBike = false;
+              reason = `Snow at 7am — leave the bike.`;
+            } else if (mm >= 2) {
+              canBike = false;
+              reason = `${mm.toFixed(1)}mm of rain in the 7–8am hour — too wet.`;
+            } else if (gust >= 35) {
+              canBike = false;
+              reason = `${Math.round(gust)}mph gusts at 7am — risky on two wheels.`;
+            } else if (mm >= 0.5 || prob >= 50) {
+              reason = `Drizzle possible (${prob}%, ${mm.toFixed(1)}mm) — waterproofs on, but go.`;
+            } else if (gust >= 25) {
+              reason = `${temp}° and breezy (${Math.round(gust)}mph gusts) — watch for buffeting, otherwise fine.`;
+            } else if (prob >= 30) {
+              reason = `${temp}°, ${prob}% chance of a shower — worth a jacket.`;
+            } else {
+              reason = `${temp}° at 7am, dry and calm — perfect ride.`;
+            }
+
+            const bikeIcon = `<svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <circle cx="5.5" cy="17.5" r="3.5"/>
+              <circle cx="18.5" cy="17.5" r="3.5"/>
+              <circle cx="15" cy="5" r="1"/>
+              <path d="M12 17.5V14l-3-3 5-3 3 4h3"/>
+            </svg>`;
+
+            advisorsHTML += `
+              <div class="advisor ${canBike ? 'yes' : 'no'}">
+                <div class="advisor-icon">${bikeIcon}</div>
+                <div>
+                  <div class="advisor-title">Bike to work? ${canBike ? 'Yes' : 'No'}</div>
+                  <div class="advisor-reason">${reason}</div>
+                </div>
+              </div>
+            `;
+          }
+        }
+
         // Frost warning: for today, look at the remaining hours plus the
         // overnight into tomorrow (until 8am) since frost forms after dark.
         // For other days, look at that day's full hourly range.
