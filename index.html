@@ -1276,8 +1276,27 @@
           const minTemp = Math.min(...temps);
           if (minTemp < 2) {
             const minIdx = frostHours[temps.indexOf(minTemp)].i;
-            const minWhen = formatHour(h.time[minIdx]);
+            const minTime = h.time[minIdx];
+            const minHr = new Date(minTime).getHours();
+            const minWhen = formatHour(minTime);
             const rounded = Math.round(minTemp);
+
+            // Whether the cold dip falls tonight or in tomorrow's pre-dawn hours
+            // changes both the headline ("tonight" vs "tomorrow morning") and the
+            // time label, since "5am" alone doesn't say which day.
+            let frostLabel = '';
+            let timeLabel = minWhen;
+            if (dayIndex === 0) {
+              const tomorrowDate = d.time[1];
+              const isTomorrow = tomorrowDate && minTime.startsWith(tomorrowDate);
+              if (isTomorrow) {
+                frostLabel = minHr < 12 ? 'tomorrow morning' : 'tomorrow';
+                timeLabel = `${minWhen} tomorrow`;
+              } else {
+                frostLabel = 'tonight';
+              }
+            }
+
             advisorsHTML += `
             <div class="advisor frost">
               <div class="advisor-icon">
@@ -1293,8 +1312,8 @@
                 </svg>
               </div>
               <div>
-                <div class="advisor-title">Frost likely ${dayIndex === 0 ? 'tonight' : ''}</div>
-                <div class="advisor-reason">Drops to ${rounded}°C around ${minWhen} — cover tender plants, expect icy windscreens.</div>
+                <div class="advisor-title">Frost likely ${frostLabel}</div>
+                <div class="advisor-reason">Drops to ${rounded}°C around ${timeLabel} — cover tender plants, expect icy windscreens.</div>
               </div>
             </div>
           `;
