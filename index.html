@@ -4,10 +4,16 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta name="robots" content="noindex, nofollow">
-  <title>7-Day Weather</title>
+  <title>Skylark · 7-Day Weather</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Average+Sans&display=swap" rel="stylesheet">
+  <link rel="icon" type="image/png" href="favicon-96x96.png" sizes="96x96" />
+  <link rel="icon" type="image/svg+xml" href="favicon.svg" />
+  <link rel="shortcut icon" href="favicon.ico" />
+  <link rel="apple-touch-icon" sizes="180x180" href="apple-touch-icon.png" />
+  <meta name="apple-mobile-web-app-title" content="Skylark" />
+  <link rel="manifest" href="site.webmanifest" />
   <style>
     :root {
       --cream: #EBF0C8;
@@ -380,7 +386,7 @@
       border-radius: 14px;
     }
 
-    .advisor + .detail-panel-header {
+    .advisor+.detail-panel-header {
       margin-top: 1.25rem;
     }
 
@@ -509,6 +515,67 @@
       cursor: wait;
     }
 
+    .brand {
+      position: fixed;
+      top: 1rem;
+      left: 1rem;
+      z-index: 10;
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      text-decoration: none;
+      color: #ffffff;
+      letter-spacing: 0.02em;
+      text-shadow: 0 2px 8px rgba(0, 0, 0, 0.35);
+    }
+
+    .brand-text {
+      display: flex;
+      flex-direction: column;
+      line-height: 1.05;
+    }
+
+    .brand-name {
+      font-size: 1.6rem;
+      font-weight: 700;
+    }
+
+    .brand-tagline {
+      font-size: 0.95rem;
+      font-weight: 500;
+      opacity: 0.9;
+      letter-spacing: 0.04em;
+    }
+
+    .brand-logo {
+      width: 64px;
+      height: 64px;
+      flex-shrink: 0;
+      display: block;
+      filter: drop-shadow(0 2px 6px rgba(0, 0, 0, 0.3));
+    }
+
+    @media (max-width: 600px) {
+      .brand {
+        top: 0.65rem;
+        left: 0.75rem;
+        gap: 0.5rem;
+      }
+
+      .brand-name {
+        font-size: 1.1rem;
+      }
+
+      .brand-tagline {
+        font-size: 0.75rem;
+      }
+
+      .brand-logo {
+        width: 38px;
+        height: 38px;
+      }
+    }
+
     .search-controls {
       position: fixed;
       top: 1.25rem;
@@ -609,6 +676,7 @@
         opacity: 0;
         transform: translateY(8px);
       }
+
       to {
         opacity: 1;
         transform: translateY(0);
@@ -616,8 +684,13 @@
     }
 
     @keyframes fade-in {
-      from { opacity: 0; }
-      to { opacity: 1; }
+      from {
+        opacity: 0;
+      }
+
+      to {
+        opacity: 1;
+      }
     }
 
     .header {
@@ -685,12 +758,22 @@
     }
 
     @keyframes bob {
-      0%, 100% { transform: translateY(0); }
-      50% { transform: translateY(-3px); }
+
+      0%,
+      100% {
+        transform: translateY(0);
+      }
+
+      50% {
+        transform: translateY(-3px);
+      }
     }
 
     @media (prefers-reduced-motion: reduce) {
-      *, *::before, *::after {
+
+      *,
+      *::before,
+      *::after {
         animation-duration: 0.01ms !important;
         animation-delay: 0ms !important;
         transition-duration: 0.01ms !important;
@@ -731,6 +814,38 @@
   </style>
 </head>
 <body>
+  <a href="#" class="brand" aria-label="Skylark Weather">
+    <svg class="brand-logo" viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+      <circle cx="56" cy="9" r="6" fill="#FFC107" />
+
+      <path d="M22 40 L3 53 L6 56 L24 43 Z" fill="#EBF0C8" />
+      <path d="M22 40 L8 50 L10 53 L24 42 Z" fill="#ffffff" />
+
+      <path d="M18 41 C18 28 30 22 42 22 C51 22 53 32 47 39 C39 45 22 47 18 41 Z" fill="#EBF0C8" />
+      <path d="M22 40 C22 30 30 25 41 25 C48 25 50 32 45 38 C38 42 25 44 22 40 Z" fill="#ffffff" />
+
+      <circle cx="45" cy="23" r="9" fill="#EBF0C8" />
+      <circle cx="45" cy="22" r="8" fill="#ffffff" />
+
+      <path d="M42 14 Q44 9 48 13 Q45 15 42 14 Z" fill="#ffffff" />
+
+      <path d="M53 22 L62 23 L53 26 Z" fill="#FFC107" />
+
+      <circle cx="47" cy="21" r="1.7" fill="#3B437A" />
+      <circle cx="47.5" cy="20.5" r="0.5" fill="#ffffff" />
+
+      <path d="M22 32 Q16 8 38 14 Q42 24 38 32 Q30 36 22 32 Z" fill="#EBF0C8" />
+      <path d="M25 31 Q21 13 36 18 Q40 25 36 31 Q30 33 25 31 Z" fill="#ffffff" />
+      <path d="M26 30 Q30 30 34 32" stroke="#AED4B2" stroke-width="0.7" fill="none" stroke-linecap="round" />
+      <path d="M24 25 Q29 26 34 28" stroke="#AED4B2" stroke-width="0.7" fill="none" stroke-linecap="round" />
+      <path d="M25 20 Q30 20 35 23" stroke="#AED4B2" stroke-width="0.7" fill="none" stroke-linecap="round" />
+    </svg>
+    <div class="brand-text">
+      <span class="brand-name">Skylark</span>
+      <span class="brand-tagline">Weather</span>
+    </div>
+  </a>
+
   <div class="container">
     <div class="header">
       <div class="location" id="location">Loading…</div>
@@ -948,11 +1063,26 @@
     // WHO UV-index bands. Colour follows the standard green/yellow/orange/red/violet scheme.
     function classifyUV(uv) {
       if (uv == null || isNaN(uv)) return null;
-      if (uv >= 11) return { label: 'Extreme', color: '#6B3FA0' };
-      if (uv >= 8) return { label: 'V High', color: '#8A3D35' };
-      if (uv >= 6) return { label: 'High', color: '#C27B1F' };
-      if (uv >= 3) return { label: 'Moderate', color: '#7A5A1F' };
-      return { label: 'Low', color: '#2F5D3E' };
+      if (uv >= 11) return {
+        label: 'Extreme',
+        color: '#6B3FA0'
+      };
+      if (uv >= 8) return {
+        label: 'V High',
+        color: '#8A3D35'
+      };
+      if (uv >= 6) return {
+        label: 'High',
+        color: '#C27B1F'
+      };
+      if (uv >= 3) return {
+        label: 'Moderate',
+        color: '#7A5A1F'
+      };
+      return {
+        label: 'Low',
+        color: '#2F5D3E'
+      };
     }
 
     // Pick an outfit for the selected day based on apparent temp + rain + uv + snow.
@@ -962,20 +1092,27 @@
       const h = weatherData.hourly;
       const dayDate = weatherData.daily.time[dayIndex];
       const windowIdxs = h.time
-        .map((t, i) => ({ t, i }))
-        .filter(({ t }) => {
+        .map((t, i) => ({
+          t,
+          i
+        }))
+        .filter(({
+          t
+        }) => {
           if (!t.startsWith(dayDate)) return false;
           const hr = new Date(t).getHours();
           return hr >= 11 && hr <= 14;
         })
-        .map(({ i }) => i);
+        .map(({
+          i
+        }) => i);
 
-      const sampleIdxs = windowIdxs.length
-        ? windowIdxs
-        : (() => {
-            const fallback = h.time.findIndex(t => t.startsWith(dayDate));
-            return fallback >= 0 ? [fallback] : [];
-          })();
+      const sampleIdxs = windowIdxs.length ?
+        windowIdxs :
+        (() => {
+          const fallback = h.time.findIndex(t => t.startsWith(dayDate));
+          return fallback >= 0 ? [fallback] : [];
+        })();
       if (!sampleIdxs.length) return null;
 
       const apparent = sampleIdxs.map(i => h.apparent_temperature?.[i] ?? h.temperature_2m[i]);
@@ -992,12 +1129,29 @@
       const code = Number(Object.entries(codeCounts).sort((a, b) => b[1] - a[1])[0][0]);
       const isSnow = [71, 73, 75, 77, 85, 86].includes(code);
 
-      const outfit = { headwear: null, eyewear: null, scarf: false, torso: 'longsleeve', legs: 'trousers', umbrella: false, windy: false };
-      if (temp >= 22) { outfit.torso = 'tshirt'; outfit.legs = 'shorts'; }
-      else if (temp >= 16) { outfit.torso = 'tshirt'; }
-      else if (temp >= 10) { outfit.torso = 'longsleeve'; }
-      else if (temp >= 2) { outfit.torso = 'coat'; }
-      else { outfit.torso = 'coat'; outfit.scarf = true; outfit.headwear = 'beanie'; }
+      const outfit = {
+        headwear: null,
+        eyewear: null,
+        scarf: false,
+        torso: 'longsleeve',
+        legs: 'trousers',
+        umbrella: false,
+        windy: false
+      };
+      if (temp >= 22) {
+        outfit.torso = 'tshirt';
+        outfit.legs = 'shorts';
+      } else if (temp >= 16) {
+        outfit.torso = 'tshirt';
+      } else if (temp >= 10) {
+        outfit.torso = 'longsleeve';
+      } else if (temp >= 2) {
+        outfit.torso = 'coat';
+      } else {
+        outfit.torso = 'coat';
+        outfit.scarf = true;
+        outfit.headwear = 'beanie';
+      }
 
       // Probability and amount must both clear the bar — high prob of trace
       // drizzle (e.g. 60% / 0.1mm) isn't worth a brolly or raincoat.
@@ -1014,12 +1168,28 @@
       }
 
       if (uv >= 5 && temp >= 16 && !outfit.umbrella) outfit.eyewear = 'sunglasses';
-      if (isSnow) { outfit.headwear = 'beanie'; outfit.scarf = true; }
+      if (isSnow) {
+        outfit.headwear = 'beanie';
+        outfit.scarf = true;
+      }
 
-      return { outfit, temp, rain, rainMm, wind, isSnow };
+      return {
+        outfit,
+        temp,
+        rain,
+        rainMm,
+        wind,
+        isSnow
+      };
     }
 
-    function captionFor({ outfit, temp, rain, wind, isSnow }) {
+    function captionFor({
+      outfit,
+      temp,
+      rain,
+      wind,
+      isSnow
+    }) {
       const mph = Math.round(wind);
       if (isSnow) return `${temp}° and snowy — full winter kit.`;
       if (outfit.torso === 'raincoat' && outfit.windy) return `${temp}° with rain and ${mph}mph wind — waterproofs, brolly is useless.`;
@@ -1039,9 +1209,9 @@
       const isShorts = outfit.legs === 'shorts';
       const hasSleeves = outfit.torso !== 'tshirt';
       const isCoat = outfit.torso === 'coat' || outfit.torso === 'raincoat';
-      const torsoColor = outfit.torso === 'raincoat' ? '#E5B94F'
-        : outfit.torso === 'tshirt' ? 'var(--teal)'
-        : 'var(--indigo)';
+      const torsoColor = outfit.torso === 'raincoat' ? '#E5B94F' :
+        outfit.torso === 'tshirt' ? 'var(--teal)' :
+        'var(--indigo)';
       const parts = [];
 
       parts.push(`<ellipse cx="50" cy="128" rx="20" ry="2.5" fill="rgba(0,0,0,0.12)"/>`);
@@ -1135,7 +1305,10 @@
         const code = hourly.weather_code[i];
         counts[code] = (counts[code] || 0) + 1;
       });
-      const entries = Object.entries(counts).map(([c, n]) => ({ code: Number(c), count: n }));
+      const entries = Object.entries(counts).map(([c, n]) => ({
+        code: Number(c),
+        count: n
+      }));
       if (!entries.length) return null;
 
       const meaningful = entries
@@ -1217,9 +1390,9 @@
         const wind = h.wind_speed_10m[i];
         const temp = Math.round(h.temperature_2m[i]);
         const feels = h.apparent_temperature ? Math.round(h.apparent_temperature[i]) : null;
-        const feelsHTML = feels != null && Math.abs(feels - temp) >= 1
-          ? `<div class="hour-feels">feels ${feels}°</div>`
-          : `<div class="hour-feels"></div>`;
+        const feelsHTML = feels != null && Math.abs(feels - temp) >= 1 ?
+          `<div class="hour-feels">feels ${feels}°</div>` :
+          `<div class="hour-feels"></div>`;
         return `
         <div class="hour-card ${isNow ? 'now' : ''}" data-hour="${new Date(t).getHours()}">
           <div class="hour-time">${isNow ? 'Now' : formatHour(t)}</div>
@@ -1237,7 +1410,9 @@
       const placeholderBar = '<div class="precip-bar placeholder"></div>';
       const precipBarsHTML =
         (hasPrev ? placeholderBar : '') +
-        hoursForDay.map(({ i }) => {
+        hoursForDay.map(({
+          i
+        }) => {
           const p = h.precipitation_probability[i] ?? 0;
           return `<div class="precip-bar" style="--p:${p}%" title="${p}% chance of rain"></div>`;
         }).join('') +
@@ -1270,15 +1445,21 @@
         const sunsetHr = new Date(d.sunset[dayIndex]).getHours();
         const washingStart = dayIndex === 0 ? Math.max(sunriseHr, currentHour) : sunriseHr;
         const washingEnd = sunsetHr;
-        const washingHours = hoursForDay.filter(({ t }) => {
+        const washingHours = hoursForDay.filter(({
+          t
+        }) => {
           const hr = new Date(t).getHours();
           return hr >= washingStart && hr <= washingEnd;
         });
         if (washingHours.length > 0) {
-          const maxProb = Math.max(...washingHours.map(({ i }) => h.precipitation_probability[i] ?? 0));
+          const maxProb = Math.max(...washingHours.map(({
+            i
+          }) => h.precipitation_probability[i] ?? 0));
           // Bar must be cleared on both axes — a 35% chance of zero-mm fizzle
           // shouldn't block hanging out, only a real risk of measurable rain.
-          const canHang = washingHours.every(({ i }) => {
+          const canHang = washingHours.every(({
+            i
+          }) => {
             const p = h.precipitation_probability[i] ?? 0;
             const mm = h.precipitation?.[i] ?? 0;
             return !(p >= 30 && mm >= 0.2);
@@ -1312,8 +1493,13 @@
           const todayDate = d.time[0];
           const tomorrowDate = d.time[1];
           frostHours = h.time
-            .map((t, i) => ({ t, i }))
-            .filter(({ t }) => {
+            .map((t, i) => ({
+              t,
+              i
+            }))
+            .filter(({
+              t
+            }) => {
               const hr = new Date(t).getHours();
               if (t.startsWith(todayDate) && hr >= currentHour) return true;
               if (tomorrowDate && t.startsWith(tomorrowDate) && hr <= 8) return true;
@@ -1323,7 +1509,9 @@
           frostHours = hoursForDay;
         }
         if (frostHours.length > 0) {
-          const temps = frostHours.map(({ i }) => h.temperature_2m[i]);
+          const temps = frostHours.map(({
+            i
+          }) => h.temperature_2m[i]);
           const minTemp = Math.min(...temps);
           if (minTemp < 2) {
             const minIdx = frostHours[temps.indexOf(minTemp)].i;
@@ -1374,12 +1562,16 @@
         // UV warning: look at remaining daylight hours on the selected day.
         // Only warn if max UV during that window is 6+ (High or above).
         if (h.uv_index) {
-          const uvHours = hoursForDay.filter(({ t }) => {
+          const uvHours = hoursForDay.filter(({
+            t
+          }) => {
             const hr = new Date(t).getHours();
             return dayIndex === 0 ? hr >= currentHour && hr <= 20 : hr >= 6 && hr <= 20;
           });
           if (uvHours.length > 0) {
-            const uvValues = uvHours.map(({ i }) => h.uv_index[i] ?? 0);
+            const uvValues = uvHours.map(({
+              i
+            }) => h.uv_index[i] ?? 0);
             const maxUV = Math.max(...uvValues);
             if (maxUV >= 6) {
               const peakIdx = uvHours[uvValues.indexOf(maxUV)].i;
@@ -1421,9 +1613,9 @@
         '';
 
       const dressMe = chooseOutfit(dayIndex);
-      const dressMeTitle = dayIndex === 0
-        ? 'Dress for today'
-        : `Dress for ${new Date(dayDate).toLocaleDateString(undefined, { weekday: 'long' })}`;
+      const dressMeTitle = dayIndex === 0 ?
+        'Dress for today' :
+        `Dress for ${new Date(dayDate).toLocaleDateString(undefined, { weekday: 'long' })}`;
       const dressMeHTML = dressMe ? `
         <div class="dress-me">
           <div class="dress-me-figure">${renderFigure(dressMe.outfit)}</div>
