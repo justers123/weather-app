@@ -526,8 +526,20 @@
       border-radius: 14px;
     }
 
-    .advisor+.detail-panel-header {
-      margin-top: 1.25rem;
+    .hourly-scroll+.advisors {
+      margin-top: 1rem;
+    }
+
+    @media (min-width: 1220px) {
+      .advisors {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 0.75rem;
+      }
+
+      .advisors .advisor {
+        margin-bottom: 0;
+      }
     }
 
     .advisor.yes {
@@ -1858,7 +1870,6 @@
       ` : '';
 
       document.getElementById('detail-panel').innerHTML = `
-      ${advisorsHTML}
       <div class="detail-panel-header">
         <div>
           <div class="detail-panel-title">${title}</div>
@@ -1884,6 +1895,7 @@
         <div class="precip-bars">${precipBarsHTML}</div>
         <div class="hourly-row">${prevJumpHTML}${hoursHTML}${nextJumpHTML}</div>
       </div>
+      ${advisorsHTML ? `<div class="advisors">${advisorsHTML}</div>` : ''}
       ${dressMeHTML}
     `;
 
