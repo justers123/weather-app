@@ -218,7 +218,9 @@
     }
 
     @keyframes summaryFadeIn {
-      to { opacity: 1; }
+      to {
+        opacity: 1;
+      }
     }
 
     .summary-modal {
@@ -234,7 +236,9 @@
     }
 
     @keyframes summarySlideIn {
-      to { transform: translateY(0); }
+      to {
+        transform: translateY(0);
+      }
     }
 
     .summary-modal-header {
@@ -275,7 +279,7 @@
       color: var(--indigo);
     }
 
-    .summary-modal-body p + p {
+    .summary-modal-body p+p {
       margin-top: 0.75rem;
     }
 
@@ -1284,9 +1288,16 @@
       const h = weatherData.hourly;
       const dayDate = weatherData.daily.time[dayIndex];
       const dayIdxs = h.time
-        .map((t, i) => ({ t, i }))
-        .filter(({ t }) => t.startsWith(dayDate))
-        .map(({ i }) => i);
+        .map((t, i) => ({
+          t,
+          i
+        }))
+        .filter(({
+          t
+        }) => t.startsWith(dayDate))
+        .map(({
+          i
+        }) => i);
       if (!dayIdxs.length) return null;
 
       const activeIdxs = dayIdxs.filter(i => {
@@ -1674,7 +1685,9 @@
       const isWeekday = dayOfWeek >= 1 && dayOfWeek <= 5;
       const bikeTooLate = dayIndex === 0 && currentHour >= 8;
       if (isWeekday && !bikeTooLate) {
-        const bikeIdx = hoursForDay.find(({ t }) => new Date(t).getHours() === 7)?.i;
+        const bikeIdx = hoursForDay.find(({
+          t
+        }) => new Date(t).getHours() === 7)?.i;
         if (bikeIdx != null) {
           const code = h.weather_code[bikeIdx];
           const mm = h.precipitation?.[bikeIdx] ?? 0;
@@ -1688,7 +1701,7 @@
           let reason;
           if (heavyRainCode) {
             canBike = false;
-            reason = `Heavy rain at 7am — take the car.`;
+            reason = `Heavy rain at 7am — take the bus.`;
           } else if (snowCode) {
             canBike = false;
             reason = `Snow at 7am — leave the bike.`;
@@ -1794,7 +1807,7 @@
             </div>
             <div>
               <div class="advisor-title">Frost likely ${frostLabel}</div>
-              <div class="advisor-reason">Drops to ${rounded}°C around ${timeLabel} — cover tender plants, expect icy windscreens.</div>
+              <div class="advisor-reason">Drops to ${rounded}°C around ${timeLabel}</div>
             </div>
           </div>
         `;
@@ -1930,9 +1943,11 @@
       const d = weatherData.daily;
       const h = weatherData.hourly;
       const dayDate = d.time[dayIndex];
-      const dayLabel = dayIndex === 0
-        ? 'today'
-        : new Date(dayDate).toLocaleDateString(undefined, { weekday: 'long' });
+      const dayLabel = dayIndex === 0 ?
+        'today' :
+        new Date(dayDate).toLocaleDateString(undefined, {
+          weekday: 'long'
+        });
 
       const hourIdxs = h.time
         .map((t, i) => t.startsWith(dayDate) ? i : -1)
@@ -1968,13 +1983,13 @@
       const cloudyCount = codes.filter(c => isCloudy(c) || isPartly(c)).length;
 
       const wettestIdx = mm.indexOf(Math.max(...mm));
-      const wettestHr = wettestIdx >= 0
-        ? new Date(h.time[hourIdxs[wettestIdx]]).getHours()
-        : null;
+      const wettestHr = wettestIdx >= 0 ?
+        new Date(h.time[hourIdxs[wettestIdx]]).getHours() :
+        null;
       const uvPeakIdx = uvs.indexOf(peakUV);
-      const uvPeakHr = uvPeakIdx >= 0
-        ? new Date(h.time[hourIdxs[uvPeakIdx]]).getHours()
-        : null;
+      const uvPeakHr = uvPeakIdx >= 0 ?
+        new Date(h.time[hourIdxs[uvPeakIdx]]).getHours() :
+        null;
 
       const fmtHr = hr => {
         if (hr == null) return '';
@@ -2042,18 +2057,18 @@
         ]
       };
 
-      const tempDescriptors = hi >= 27 ? 'toasty'
-        : hi >= 22 ? 'warm'
-        : hi >= 16 ? 'mild'
-        : hi >= 10 ? 'cool'
-        : hi >= 4 ? 'chilly'
-        : 'properly cold';
+      const tempDescriptors = hi >= 27 ? 'toasty' :
+        hi >= 22 ? 'warm' :
+        hi >= 16 ? 'mild' :
+        hi >= 10 ? 'cool' :
+        hi >= 4 ? 'chilly' :
+        'properly cold';
 
       const tempPhrase = (() => {
         const gap = hi - lo;
-        const feelsGap = Math.abs(feelsHi - hi) >= 3
-          ? ` (feels more like ${feelsHi}° when you're out in it)`
-          : '';
+        const feelsGap = Math.abs(feelsHi - hi) >= 3 ?
+          ` (feels more like ${feelsHi}° when you're out in it)` :
+          '';
         if (gap >= 10) {
           return `Highs of ${hi}°C${feelsGap}, dipping to a much cooler ${lo}°C — worth layering up.`;
         }
@@ -2111,13 +2126,15 @@
       const signoff = pick(signoffs[vibe]);
 
       const para1 = `${opener}. ${tempPhrase}`;
-      const para2 = tips.length
-        ? `${tips.join(' ')} ${signoff}`
-        : `Not a lot to worry about weather-wise — an easy-going day. ${signoff}`;
+      const para2 = tips.length ?
+        `${tips.join(' ')} ${signoff}` :
+        `Not a lot to worry about weather-wise — an easy-going day. ${signoff}`;
 
       return [para1, para2];
 
-      function cap(s) { return s.charAt(0).toUpperCase() + s.slice(1); }
+      function cap(s) {
+        return s.charAt(0).toUpperCase() + s.slice(1);
+      }
     }
 
     let summaryReturnFocus = null;
@@ -2127,13 +2144,13 @@
       summaryReturnFocus = triggerEl || null;
 
       const dayDate = weatherData.daily.time[dayIndex];
-      const titleLabel = dayIndex === 0
-        ? 'Today'
-        : new Date(dayDate).toLocaleDateString(undefined, {
-            weekday: 'long',
-            month: 'long',
-            day: 'numeric'
-          });
+      const titleLabel = dayIndex === 0 ?
+        'Today' :
+        new Date(dayDate).toLocaleDateString(undefined, {
+          weekday: 'long',
+          month: 'long',
+          day: 'numeric'
+        });
 
       const paragraphs = buildDaySummary(dayIndex);
 
@@ -2406,15 +2423,26 @@
           // Prefer a fresh GPS fix — if the user has moved since first load
           // we want the button to genuinely mean "here, right now", not
           // "back to whatever was cached at page-load".
-          ({ lat, lon } = await getPosition());
+          ({
+            lat,
+            lon
+          } = await getPosition());
           place = await reverseGeocode(lat, lon);
           setCachedLocation(lat, lon, place);
-          originalLocation = { lat, lon, place };
+          originalLocation = {
+            lat,
+            lon,
+            place
+          };
         } catch {
           // Fall back to whatever was resolved at init — covers denied
           // permissions, offline, etc.
           if (!originalLocation) throw new Error('Location unavailable.');
-          ({ lat, lon, place } = originalLocation);
+          ({
+            lat,
+            lon,
+            place
+          } = originalLocation);
         }
         await loadLocation(lat, lon, place);
         btn.hidden = true;
