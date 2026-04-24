@@ -1721,6 +1721,27 @@
             reason = `${temp}° at 7am, dry and calm — perfect ride.`;
           }
 
+          // Evening ride home: warn if rain is likely 4–6pm, regardless of
+          // the morning verdict. Skipped on today once it's past 6pm.
+          if (canBike) {
+            const homeTooLate = dayIndex === 0 && currentHour >= 18;
+            if (!homeTooLate) {
+              const homeIdxs = hoursForDay
+                .filter(({ t }) => {
+                  const hr = new Date(t).getHours();
+                  return hr >= 16 && hr <= 17;
+                })
+                .map(({ i }) => i);
+              if (homeIdxs.length) {
+                const homeMm = Math.max(...homeIdxs.map(i => h.precipitation?.[i] ?? 0));
+                const homeProb = Math.max(...homeIdxs.map(i => h.precipitation_probability?.[i] ?? 0));
+                if (homeMm >= 0.5 || homeProb >= 50) {
+                  reason += ` Heads-up: rain likely 4–6pm (${homeProb}%) on the way home.`;
+                }
+              }
+            }
+          }
+
           const bikeIcon = `<svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <circle cx="5.5" cy="17.5" r="3.5"/>
             <circle cx="18.5" cy="17.5" r="3.5"/>
