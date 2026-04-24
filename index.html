@@ -1057,10 +1057,14 @@
       drizzle: `<svg viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg"><path d="M18 32 Q18 20 30 20 Q34 12 44 14 Q56 14 56 26 Q62 28 60 36 Q58 44 48 44 L20 44 Q10 44 10 34 Q10 28 18 32 Z" fill="#94a3b8" stroke="#64748b" stroke-width="1.5"/><g stroke="#3B82F6" stroke-width="2.5" stroke-linecap="round"><line x1="22" y1="48" x2="20" y2="54"/><line x1="32" y1="48" x2="30" y2="54"/><line x1="42" y1="48" x2="40" y2="54"/></g></svg>`,
       rain: `<svg viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg"><path d="M18 30 Q18 18 30 18 Q34 10 44 12 Q56 12 56 24 Q62 26 60 34 Q58 42 48 42 L20 42 Q10 42 10 32 Q10 26 18 30 Z" fill="#64748b" stroke="#475569" stroke-width="1.5"/><g stroke="#3B82F6" stroke-width="3" stroke-linecap="round"><line x1="20" y1="48" x2="16" y2="58"/><line x1="30" y1="48" x2="26" y2="58"/><line x1="40" y1="48" x2="36" y2="58"/><line x1="50" y1="48" x2="46" y2="58"/></g></svg>`,
       snow: `<svg viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg"><path d="M18 30 Q18 18 30 18 Q34 10 44 12 Q56 12 56 24 Q62 26 60 34 Q58 42 48 42 L20 42 Q10 42 10 32 Q10 26 18 30 Z" fill="#CBD5E1" stroke="#94a3b8" stroke-width="1.5"/><g fill="#E0F2FE" stroke="#7DD3FC" stroke-width="1"><circle cx="20" cy="52" r="3"/><circle cx="32" cy="56" r="3"/><circle cx="44" cy="52" r="3"/></g></svg>`,
-      thunder: `<svg viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg"><path d="M18 30 Q18 18 30 18 Q34 10 44 12 Q56 12 56 24 Q62 26 60 34 Q58 42 48 42 L20 42 Q10 42 10 32 Q10 26 18 30 Z" fill="#475569" stroke="#334155" stroke-width="1.5"/><path d="M32 42 L24 56 L30 56 L28 62 L38 48 L32 48 L34 42 Z" fill="#FBBF24" stroke="#F59E0B" stroke-width="1"/></svg>`
+      thunder: `<svg viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg"><path d="M18 30 Q18 18 30 18 Q34 10 44 12 Q56 12 56 24 Q62 26 60 34 Q58 42 48 42 L20 42 Q10 42 10 32 Q10 26 18 30 Z" fill="#475569" stroke="#334155" stroke-width="1.5"/><path d="M32 42 L24 56 L30 56 L28 62 L38 48 L32 48 L34 42 Z" fill="#FBBF24" stroke="#F59E0B" stroke-width="1"/></svg>`,
+      moon: `<svg viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg"><path d="M42 10 A22 22 0 1 0 54 42 A18 18 0 0 1 42 10 Z" fill="#CBD5E1" stroke="#94a3b8" stroke-width="1.5"/></svg>`,
+      partlyNight: `<svg viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg"><path d="M28 8 A14 14 0 1 0 36 28 A11 11 0 0 1 28 8 Z" fill="#CBD5E1" stroke="#94a3b8" stroke-width="1.5"/><path d="M20 44 Q20 34 30 34 Q34 28 42 30 Q52 30 52 40 Q58 42 56 50 Q54 56 46 56 L22 56 Q14 56 14 48 Q14 42 20 44 Z" fill="#E3E8F0" stroke="#94a3b8" stroke-width="1.5"/></svg>`
     };
 
-    function describe(code) {
+    function describe(code, isNight = false) {
+      const nightSwap = { [svg.sun]: svg.moon, [svg.partly]: svg.partlyNight };
+      const swap = ([label, icon]) => [label, isNight ? (nightSwap[icon] ?? icon) : icon];
       const m = {
         0: ['Clear sky', svg.sun],
         1: ['Mainly clear', svg.partly],
@@ -1091,7 +1095,7 @@
         96: ['Thunder w/ hail', svg.thunder],
         99: ['Thunder w/ hail', svg.thunder]
       };
-      return m[code] || ['Unknown', svg.cloud];
+      return swap(m[code] || ['Unknown', svg.cloud]);
     }
 
     function dayName(dateStr, idx) {
@@ -1552,16 +1556,6 @@
       const dayDate = d.time[dayIndex];
       const [desc] = describe(d.weather_code[dayIndex]);
 
-      // Find hourly entries that fall on this day (YYYY-MM-DD prefix match).
-      const hoursForDay = h.time
-        .map((t, i) => ({
-          t,
-          i
-        }))
-        .filter(({
-          t
-        }) => t.startsWith(dayDate));
-
       // For today, start from the current hour (in the location's timezone);
       // for other days, show all 24.
       const currentHour = Number(new Date().toLocaleString('en-GB', {
@@ -1569,13 +1563,29 @@
         hour: '2-digit',
         hour12: false
       }));
-      // Always show all 24 hours — the scroll position defaults to 7am below,
-      // but users can scroll back to see earlier times.
+
+      // Find hourly entries that fall on this day (YYYY-MM-DD prefix match).
+      // For today, drop hours already past so the strip starts at "now".
+      const hoursForDay = h.time
+        .map((t, i) => ({
+          t,
+          i
+        }))
+        .filter(({
+          t
+        }) => t.startsWith(dayDate))
+        .filter(({
+          t
+        }) => dayIndex !== 0 || new Date(t).getHours() >= currentHour);
+
+      const sunriseISO = d.sunrise[dayIndex];
+      const sunsetISO = d.sunset[dayIndex];
       const hoursHTML = hoursForDay.map(({
         t,
         i
       }) => {
-        const [, icon] = describe(h.weather_code[i]);
+        const isNight = t < sunriseISO || t >= sunsetISO;
+        const [, icon] = describe(h.weather_code[i], isNight);
         const isNow = dayIndex === 0 && new Date(t).getHours() === currentHour;
         const precip = h.precipitation_probability[i] ?? 0;
         const wind = h.wind_speed_10m[i];
