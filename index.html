@@ -1291,6 +1291,15 @@
     function chooseOutfit(dayIndex) {
       const h = weatherData.hourly;
       const dayDate = weatherData.daily.time[dayIndex];
+      // For today, only consider hours from "now" onward — otherwise an outfit
+      // pick at 7pm still reacts to rain that fell at breakfast.
+      const currentHour = dayIndex === 0
+        ? Number(new Date().toLocaleString('en-GB', {
+            timeZone: weatherData.timezone,
+            hour: '2-digit',
+            hour12: false
+          }))
+        : -1;
       const dayIdxs = h.time
         .map((t, i) => ({
           t,
@@ -1298,7 +1307,7 @@
         }))
         .filter(({
           t
-        }) => t.startsWith(dayDate))
+        }) => t.startsWith(dayDate) && (dayIndex !== 0 || new Date(t).getHours() >= currentHour))
         .map(({
           i
         }) => i);
@@ -1486,6 +1495,20 @@
       return code; // 0 clear → 3 overcast
     }
 
+    // Open-Meteo's hourly weather_code and precipitation_probability/precipitation
+    // are independent model outputs and sometimes disagree — e.g. code 3 "overcast"
+    // alongside a 100% probability and 1mm of rain. When the precip data clearly
+    // says it's wet, swap the icon over to drizzle/rain. Never downgrade a code
+    // that already encodes precip/fog/storm.
+    function effectiveCode(rawCode, prob, mm) {
+      if (rawCode >= 45) return rawCode;
+      const p = prob ?? 0;
+      const m = mm ?? 0;
+      if (m >= 0.5) return 63;            // rain
+      if (m >= 0.1 || p >= 60) return 53; // drizzle
+      return rawCode;
+    }
+
     // Summarise a day's weather between sunrise and sunset. If two or more hours
     // of fog/precip/storm appear, promote the most severe of those over a sunnier
     // mode — otherwise a brief afternoon storm gets hidden by a sunny morning.
@@ -1497,7 +1520,10 @@
         if (!t.startsWith(dayDateStr)) return;
         const hr = new Date(t).getHours();
         if (hr < startHr || hr > endHr) return;
-        const code = hourly.weather_code[i];
+        const rawCode = hourly.weather_code[i];
+        const prob = hourly.precipitation_probability?.[i] ?? 0;
+        const mm = hourly.precipitation?.[i] ?? 0;
+        const code = effectiveCode(rawCode, prob, mm);
         counts[code] = (counts[code] || 0) + 1;
       });
       const entries = Object.entries(counts).map(([c, n]) => ({
@@ -1506,6 +1532,15 @@
       }));
       if (!entries.length) return null;
 
+      // A single hour of rain/snow/storm headlines the day — otherwise a brief
+      // but intense shower vanishes behind sunnier hours, and the day-card icon
+      // ends up reading "cloudy" while the hourly strip shows 100% rain.
+      const heavy = entries
+        .filter(e => e.code >= 61)
+        .sort((a, b) => codeSeverity(b.code) - codeSeverity(a.code) || b.count - a.count);
+      if (heavy.length) return heavy[0].code;
+
+      // Drizzle/fog only wins if it's a sustained feature of the day.
       const meaningful = entries
         .filter(e => e.code >= 45 && e.count >= 2)
         .sort((a, b) => codeSeverity(b.code) - codeSeverity(a.code) || b.count - a.count);
@@ -1554,7 +1589,10 @@
       const d = weatherData.daily;
       const h = weatherData.hourly;
       const dayDate = d.time[dayIndex];
-      const [desc] = describe(d.weather_code[dayIndex]);
+      // Use the same daytime-summary code as the day card so the description
+      // here can't contradict the icon you clicked on.
+      const summaryCode = daytimeWeatherCode(h, dayDate, d.sunrise[dayIndex], d.sunset[dayIndex]) ?? d.weather_code[dayIndex];
+      const [desc] = describe(summaryCode);
 
       // For today, start from the current hour (in the location's timezone);
       // for other days, show all 24.
@@ -1585,9 +1623,11 @@
         i
       }) => {
         const isNight = t < sunriseISO || t >= sunsetISO;
-        const [, icon] = describe(h.weather_code[i], isNight);
-        const isNow = dayIndex === 0 && new Date(t).getHours() === currentHour;
         const precip = h.precipitation_probability[i] ?? 0;
+        const precipMm = h.precipitation?.[i] ?? 0;
+        const iconCode = effectiveCode(h.weather_code[i], precip, precipMm);
+        const [, icon] = describe(iconCode, isNight);
+        const isNow = dayIndex === 0 && new Date(t).getHours() === currentHour;
         const wind = h.wind_speed_10m[i];
         const temp = Math.round(h.temperature_2m[i]);
         const feels = h.apparent_temperature ? Math.round(h.apparent_temperature[i]) : null;
@@ -1659,19 +1699,41 @@
         }) => h.precipitation_probability[i] ?? 0));
         // Bar must be cleared on both axes — a 35% chance of zero-mm fizzle
         // shouldn't block hanging out, only a real risk of measurable rain.
-        const canHang = washingHours.every(({
+        const wetHours = washingHours.filter(({
           i
         }) => {
           const p = h.precipitation_probability[i] ?? 0;
           const mm = h.precipitation?.[i] ?? 0;
-          return !(p >= 30 && mm >= 0.2);
+          return p >= 30 && mm >= 0.2;
         });
+        const canHang = wetHours.length === 0;
         const fmtHour12 = hr => {
           const period = hr >= 12 ? 'pm' : 'am';
           const h12 = hr % 12 === 0 ? 12 : hr % 12;
           return `${h12}${period}`;
         };
         const windowLabel = `${fmtHour12(washingStart)}–${fmtHour12(washingEnd)}`;
+        let reason;
+        if (canHang) {
+          // Two paths to "yes": probability genuinely low everywhere, OR the
+          // probability spikes but the forecast amount is trace. Phrase the
+          // reason so it can't contradict the headline number.
+          reason = maxProb < 30
+            ? `Rain chance stays under 30% (peak ${maxProb}% between ${windowLabel}).`
+            : `Peak rain chance is ${maxProb}% between ${windowLabel}, but only trace amounts forecast (under 0.2mm).`;
+        } else {
+          // Call out the worst offending hour by its actual mm so the user can
+          // judge — "60% / 0.3mm at 2pm" is far more useful than just "60%".
+          const worst = wetHours.reduce((a, b) => {
+            const am = h.precipitation?.[a.i] ?? 0;
+            const bm = h.precipitation?.[b.i] ?? 0;
+            return bm > am ? b : a;
+          });
+          const wHr = new Date(worst.t).getHours();
+          const wMm = (h.precipitation?.[worst.i] ?? 0).toFixed(1);
+          const wProb = h.precipitation_probability?.[worst.i] ?? 0;
+          reason = `${wProb}% chance of ${wMm}mm around ${fmtHour12(wHr)} — bring it in.`;
+        }
         advisorsHTML += `
         <div class="advisor ${canHang ? 'yes' : 'no'}">
           <div class="advisor-icon">${canHang
@@ -1679,9 +1741,7 @@
             : `<svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>`}</div>
           <div>
             <div class="advisor-title">Hang washing outside? ${canHang ? 'Yes' : 'No'}</div>
-            <div class="advisor-reason">${canHang
-              ? `Rain chance stays under 30% (peak ${maxProb}% between ${windowLabel}).`
-              : `Peak rain chance is ${maxProb}% between ${windowLabel} — needs to stay under 30%.`}</div>
+            <div class="advisor-reason">${reason}</div>
           </div>
         </div>
       `;
@@ -1695,15 +1755,22 @@
       const isWeekday = dayOfWeek >= 1 && dayOfWeek <= 5;
       const bikeTooLate = dayIndex === 0 && currentHour >= 8;
       if (isWeekday && !bikeTooLate) {
-        const bikeIdx = hoursForDay.find(({
-          t
-        }) => new Date(t).getHours() === 7)?.i;
-        if (bikeIdx != null) {
-          const code = h.weather_code[bikeIdx];
-          const mm = h.precipitation?.[bikeIdx] ?? 0;
-          const prob = h.precipitation_probability?.[bikeIdx] ?? 0;
-          const gust = h.wind_gusts_10m?.[bikeIdx] ?? h.wind_speed_10m?.[bikeIdx] ?? 0;
-          const temp = Math.round(h.apparent_temperature?.[bikeIdx] ?? h.temperature_2m[bikeIdx]);
+        // Look across the whole commute window, not just 7am — an 8am shower
+        // matters too. Take the worst code, max precip/gusts, and a mean temp.
+        const bikeEntries = hoursForDay.filter(({ t }) => {
+          const hr = new Date(t).getHours();
+          return hr === 7 || hr === 8;
+        });
+        if (bikeEntries.length) {
+          const bikeIdxs = bikeEntries.map(({ i }) => i);
+          const code = bikeIdxs
+            .map(i => h.weather_code[i])
+            .reduce((a, b) => codeSeverity(b) > codeSeverity(a) ? b : a);
+          const mm = Math.max(...bikeIdxs.map(i => h.precipitation?.[i] ?? 0));
+          const prob = Math.max(...bikeIdxs.map(i => h.precipitation_probability?.[i] ?? 0));
+          const gust = Math.max(...bikeIdxs.map(i => h.wind_gusts_10m?.[i] ?? h.wind_speed_10m?.[i] ?? 0));
+          const tempVals = bikeIdxs.map(i => h.apparent_temperature?.[i] ?? h.temperature_2m[i]);
+          const temp = Math.round(tempVals.reduce((a, b) => a + b, 0) / tempVals.length);
           const heavyRainCode = [65, 67, 82, 95, 96, 99].includes(code);
           const snowCode = [71, 73, 75, 77, 85, 86].includes(code);
 
@@ -1711,16 +1778,16 @@
           let reason;
           if (heavyRainCode) {
             canBike = false;
-            reason = `Heavy rain at 7am — take the bus.`;
+            reason = `Heavy rain during the commute — take the bus.`;
           } else if (snowCode) {
             canBike = false;
-            reason = `Snow at 7am — leave the bike.`;
+            reason = `Snow during the commute — leave the bike.`;
           } else if (mm >= 2) {
             canBike = false;
-            reason = `${mm.toFixed(1)}mm of rain in the 7–8am hour — too wet.`;
+            reason = `${mm.toFixed(1)}mm of rain during 7–8am — too wet.`;
           } else if (gust >= 35) {
             canBike = false;
-            reason = `${Math.round(gust)}mph gusts at 7am — risky on two wheels.`;
+            reason = `${Math.round(gust)}mph gusts during the commute — risky on two wheels.`;
           } else if (mm >= 0.5 || prob >= 50) {
             reason = `Drizzle possible (${prob}%, ${mm.toFixed(1)}mm) — waterproofs on, but go.`;
           } else if (gust >= 25) {
@@ -1728,7 +1795,7 @@
           } else if (prob >= 30) {
             reason = `${temp}°, ${prob}% chance of a shower — worth a jacket.`;
           } else {
-            reason = `${temp}° at 7am, dry and calm — perfect ride.`;
+            reason = `${temp}° during 7–8am, dry and calm — perfect ride.`;
           }
 
           // Evening ride home: warn if rain is likely 4–6pm, regardless of
@@ -1736,17 +1803,26 @@
           if (canBike) {
             const homeTooLate = dayIndex === 0 && currentHour >= 18;
             if (!homeTooLate) {
-              const homeIdxs = hoursForDay
-                .filter(({ t }) => {
-                  const hr = new Date(t).getHours();
-                  return hr >= 16 && hr <= 17;
-                })
-                .map(({ i }) => i);
-              if (homeIdxs.length) {
+              const homeEntries = hoursForDay.filter(({ t }) => {
+                const hr = new Date(t).getHours();
+                return hr >= 16 && hr <= 17;
+              });
+              if (homeEntries.length) {
+                const homeIdxs = homeEntries.map(({ i }) => i);
                 const homeMm = Math.max(...homeIdxs.map(i => h.precipitation?.[i] ?? 0));
                 const homeProb = Math.max(...homeIdxs.map(i => h.precipitation_probability?.[i] ?? 0));
                 if (homeMm >= 0.5 || homeProb >= 50) {
-                  reason += ` Heads-up: rain likely 4–6pm (${homeProb}%) on the way home.`;
+                  // Build the window label from whatever hours are still ahead,
+                  // so at 4:30pm we don't claim "4–6pm" off a single 5pm slot.
+                  const fmt = hr => {
+                    const period = hr >= 12 ? 'pm' : 'am';
+                    const h12 = hr % 12 === 0 ? 12 : hr % 12;
+                    return `${h12}${period}`;
+                  };
+                  const hrs = [...new Set(homeEntries.map(({ t }) => new Date(t).getHours()))].sort((a, b) => a - b);
+                  const startLabel = fmt(hrs[0]);
+                  const endLabel = fmt(hrs[hrs.length - 1] + 1);
+                  reason += ` Heads-up: rain likely ${startLabel}–${endLabel} (${homeProb}%) on the way home.`;
                 }
               }
             }
@@ -1984,15 +2060,32 @@
         .map((t, i) => t.startsWith(dayDate) ? i : -1)
         .filter(i => i >= 0);
 
-      const temps = hourIdxs.map(i => h.temperature_2m[i]);
-      const feels = hourIdxs.map(i => h.apparent_temperature?.[i] ?? h.temperature_2m[i]);
-      const probs = hourIdxs.map(i => h.precipitation_probability[i] ?? 0);
-      const mm = hourIdxs.map(i => h.precipitation?.[i] ?? 0);
-      const winds = hourIdxs.map(i => h.wind_speed_10m?.[i] ?? 0);
-      const uvs = hourIdxs.map(i => h.uv_index?.[i] ?? 0);
-      const codes = hourIdxs.map(i => h.weather_code[i]);
+      // Daytime-only slice: the "vibe" (sunny/wet/storm) and headline daytime
+      // stats are taken from sunrise–sunset so they match the day-card icon,
+      // which is also computed from daytime hours. Overnight lows still come
+      // from the full 24h so frost detection isn't lost.
+      const sunriseHr = new Date(d.sunrise[dayIndex]).getHours();
+      const sunsetHr = new Date(d.sunset[dayIndex]).getHours();
+      const dayHourIdxs = hourIdxs.filter(i => {
+        const hr = new Date(h.time[i]).getHours();
+        return hr >= sunriseHr && hr <= sunsetHr;
+      });
+      const vibeIdxs = dayHourIdxs.length ? dayHourIdxs : hourIdxs;
 
-      const hi = Math.round(Math.max(...temps));
+      const temps = hourIdxs.map(i => h.temperature_2m[i]);
+      const dayTemps = vibeIdxs.map(i => h.temperature_2m[i]);
+      const feels = vibeIdxs.map(i => h.apparent_temperature?.[i] ?? h.temperature_2m[i]);
+      const probs = vibeIdxs.map(i => h.precipitation_probability[i] ?? 0);
+      const mm = vibeIdxs.map(i => h.precipitation?.[i] ?? 0);
+      const winds = vibeIdxs.map(i => h.wind_speed_10m?.[i] ?? 0);
+      const uvs = vibeIdxs.map(i => h.uv_index?.[i] ?? 0);
+      const codes = vibeIdxs.map(i => effectiveCode(
+        h.weather_code[i],
+        h.precipitation_probability?.[i] ?? 0,
+        h.precipitation?.[i] ?? 0
+      ));
+
+      const hi = Math.round(Math.max(...dayTemps));
       const lo = Math.round(Math.min(...temps));
       const feelsHi = Math.round(Math.max(...feels));
       const maxProb = Math.max(...probs);
@@ -2015,11 +2108,11 @@
 
       const wettestIdx = mm.indexOf(Math.max(...mm));
       const wettestHr = wettestIdx >= 0 ?
-        new Date(h.time[hourIdxs[wettestIdx]]).getHours() :
+        new Date(h.time[vibeIdxs[wettestIdx]]).getHours() :
         null;
       const uvPeakIdx = uvs.indexOf(peakUV);
       const uvPeakHr = uvPeakIdx >= 0 ?
-        new Date(h.time[hourIdxs[uvPeakIdx]]).getHours() :
+        new Date(h.time[vibeIdxs[uvPeakIdx]]).getHours() :
         null;
 
       const fmtHr = hr => {
@@ -2449,32 +2542,14 @@
       btn.disabled = true;
       try {
         isSearchedLocation = false;
-        let lat, lon, place;
-        try {
-          // Prefer a fresh GPS fix — if the user has moved since first load
-          // we want the button to genuinely mean "here, right now", not
-          // "back to whatever was cached at page-load".
-          ({
-            lat,
-            lon
-          } = await getPosition());
-          place = await reverseGeocode(lat, lon);
-          setCachedLocation(lat, lon, place);
-          originalLocation = {
-            lat,
-            lon,
-            place
-          };
-        } catch {
-          // Fall back to whatever was resolved at init — covers denied
-          // permissions, offline, etc.
-          if (!originalLocation) throw new Error('Location unavailable.');
-          ({
-            lat,
-            lon,
-            place
-          } = originalLocation);
-        }
+        // Click means "forget what you knew and ask the device again". Wipe
+        // the cached fix first so a stale entry can't be silently reused if
+        // the GPS call fails or returns slowly.
+        localStorage.removeItem(LOCATION_CACHE_KEY);
+        const { lat, lon } = await getPosition();
+        const place = await reverseGeocode(lat, lon);
+        setCachedLocation(lat, lon, place);
+        originalLocation = { lat, lon, place };
         await loadLocation(lat, lon, place);
         btn.hidden = true;
       } catch (e) {
