@@ -62,6 +62,16 @@
       font-size: 0.95rem;
     }
 
+    .subtitle-fresh {
+      opacity: 0.75;
+    }
+
+    .subtitle-fresh.stale {
+      color: #C27B1F;
+      opacity: 1;
+      font-weight: 600;
+    }
+
     .forecast {
       display: flex;
       gap: 0.75rem;
@@ -1162,7 +1172,10 @@
             err.kind = 'location';
             reject(err);
           }, {
-            enableHighAccuracy: false,
+            // High-accuracy fix (~10–30m on mobile) vs the IP/wifi fallback
+            // (~1km). 1km is a meaningful chunk of Open-Meteo's grid so the
+            // forecast quality benefits, especially near coasts and hills.
+            enableHighAccuracy: true,
             timeout: 10000,
             maximumAge: 600000
           }
@@ -1216,14 +1229,44 @@
       }
     }
 
-    async function getWeather(lat, lon) {
-      const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}` +
+    // SRTM elevation for the exact coordinate. Open-Meteo will use its
+    // grid-cell elevation by default, but the grid is ~10km — in hilly terrain
+    // the real point can sit hundreds of metres above or below it, biasing
+    // temperature by ~1°C per 100m. Passing &elevation= triggers a lapse-rate
+    // downscaling that fixes this.
+    async function getElevation(lat, lon) {
+      try {
+        const r = await fetch(`https://api.open-meteo.com/v1/elevation?latitude=${lat}&longitude=${lon}`);
+        if (!r.ok) return null;
+        const d = await r.json();
+        const e = Array.isArray(d.elevation) ? d.elevation[0] : null;
+        return Number.isFinite(e) ? e : null;
+      } catch {
+        return null;
+      }
+    }
+
+    async function getWeather(lat, lon, elevation) {
+      const elev = Number.isFinite(elevation) ? `&elevation=${elevation}` : '';
+      const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}${elev}` +
         `&hourly=temperature_2m,apparent_temperature,weather_code,precipitation_probability,precipitation,wind_speed_10m,wind_gusts_10m,uv_index` +
         `&daily=weather_code,temperature_2m_max,temperature_2m_min,sunrise,sunset,uv_index_max` +
         `&wind_speed_unit=mph&timezone=auto&forecast_days=7`;
       const r = await fetch(url);
       if (!r.ok) throw new Error('Weather service unavailable.');
-      return r.json();
+      const data = await r.json();
+      // Fail loudly if the API response is missing fields we depend on,
+      // rather than letting undefined values silently surface as "NaN°" or
+      // miscoloured icons deep in the UI.
+      const requiredHourly = ['time', 'temperature_2m', 'weather_code', 'precipitation_probability', 'precipitation', 'wind_speed_10m'];
+      const requiredDaily = ['time', 'weather_code', 'temperature_2m_max', 'temperature_2m_min', 'sunrise', 'sunset'];
+      for (const f of requiredHourly) {
+        if (!Array.isArray(data?.hourly?.[f])) throw new Error('Weather data was incomplete — try again.');
+      }
+      for (const f of requiredDaily) {
+        if (!Array.isArray(data?.daily?.[f])) throw new Error('Weather data was incomplete — try again.');
+      }
+      return data;
     }
 
     async function getPollen(lat, lon) {
@@ -1293,13 +1336,7 @@
       const dayDate = weatherData.daily.time[dayIndex];
       // For today, only consider hours from "now" onward — otherwise an outfit
       // pick at 7pm still reacts to rain that fell at breakfast.
-      const currentHour = dayIndex === 0
-        ? Number(new Date().toLocaleString('en-GB', {
-            timeZone: weatherData.timezone,
-            hour: '2-digit',
-            hour12: false
-          }))
-        : -1;
+      const currentHour = dayIndex === 0 ? currentHourInTZ(weatherData.timezone) : -1;
       const dayIdxs = h.time
         .map((t, i) => ({
           t,
@@ -1357,10 +1394,12 @@
         outfit.headwear = 'beanie';
       }
 
-      // Probability and amount must both clear the bar — high prob of trace
-      // drizzle (e.g. 60% / 0.1mm) isn't worth a brolly or raincoat.
-      if (rain >= 40 && rainMm >= 0.3) outfit.umbrella = true;
-      if (rain >= 70 && rainMm >= 1) outfit.torso = 'raincoat';
+      // Score umbrellas/raincoats by expected accumulation across the day.
+      // 0.15mm expected ≈ "40% chance of 0.4mm" — enough to want a brolly;
+      // 0.7mm expected ≈ "70% chance of 1mm" — proper waterproofs.
+      const expectedRain = expectedRainMm(rain, rainMm);
+      if (expectedRain >= 0.15) outfit.umbrella = true;
+      if (expectedRain >= 0.7) outfit.torso = 'raincoat';
 
       // Stiff breeze argues for a windbreaker; a gale renders an umbrella useless
       // and pushes you into a raincoat if there's any meaningful rain.
@@ -1473,6 +1512,16 @@
       return `<svg viewBox="-5 -15 110 150" xmlns="http://www.w3.org/2000/svg">${parts.join('')}</svg>`;
     }
 
+    // Probability-weighted rain expectation: "50% chance of 1mm" and "100%
+    // chance of 0.5mm" both come out at 0.5mm and warrant the same kit. Used
+    // everywhere we decide between dry / drizzly / properly wet — bike,
+    // outfit, evening-commute warning — so the thresholds stay coherent.
+    function expectedRainMm(prob, mm) {
+      const p = Math.max(0, Math.min(100, prob ?? 0));
+      const m = Math.max(0, mm ?? 0);
+      return (p / 100) * m;
+    }
+
     // Descriptive band for wind speed in mph — roughly aligned to the Beaufort scale.
     function classifyWind(mph) {
       if (mph == null || isNaN(mph)) return '';
@@ -1509,26 +1558,29 @@
       return rawCode;
     }
 
-    // Summarise a day's weather between sunrise and sunset. If two or more hours
-    // of fog/precip/storm appear, promote the most severe of those over a sunnier
-    // mode — otherwise a brief afternoon storm gets hidden by a sunny morning.
+    // Summarise a day's weather between sunrise and sunset. Hours are weighted
+    // by importance so that "an hour of dawn fog plus eight hours of sunshine"
+    // labels as sunny, not foggy — midday hours carry far more weight than
+    // fringe ones, and a brief afternoon storm still wins on severity.
     function daytimeWeatherCode(hourly, dayDateStr, sunriseISO, sunsetISO) {
       const startHr = sunriseISO ? new Date(sunriseISO).getHours() : 7;
       const endHr = sunsetISO ? new Date(sunsetISO).getHours() : 16;
-      const counts = {};
+      const hourWeight = hr => (hr >= 11 && hr <= 14) ? 3 : (hr >= 9 && hr <= 17) ? 2 : 1;
+      const weights = {};
       hourly.time.forEach((t, i) => {
         if (!t.startsWith(dayDateStr)) return;
         const hr = new Date(t).getHours();
         if (hr < startHr || hr > endHr) return;
-        const rawCode = hourly.weather_code[i];
+        const rawCode = hourly.weather_code?.[i];
+        if (rawCode == null) return;
         const prob = hourly.precipitation_probability?.[i] ?? 0;
         const mm = hourly.precipitation?.[i] ?? 0;
         const code = effectiveCode(rawCode, prob, mm);
-        counts[code] = (counts[code] || 0) + 1;
+        weights[code] = (weights[code] || 0) + hourWeight(hr);
       });
-      const entries = Object.entries(counts).map(([c, n]) => ({
+      const entries = Object.entries(weights).map(([c, w]) => ({
         code: Number(c),
-        count: n
+        weight: w
       }));
       if (!entries.length) return null;
 
@@ -1537,16 +1589,18 @@
       // ends up reading "cloudy" while the hourly strip shows 100% rain.
       const heavy = entries
         .filter(e => e.code >= 61)
-        .sort((a, b) => codeSeverity(b.code) - codeSeverity(a.code) || b.count - a.count);
+        .sort((a, b) => codeSeverity(b.code) - codeSeverity(a.code) || b.weight - a.weight);
       if (heavy.length) return heavy[0].code;
 
-      // Drizzle/fog only wins if it's a sustained feature of the day.
+      // Drizzle/fog only headlines if it covers a meaningful chunk of the
+      // active day — weight >= 4 ≈ ~2 midday hours, or ~4 fringe hours, so
+      // a sliver of dawn fog can't override a long sunny afternoon.
       const meaningful = entries
-        .filter(e => e.code >= 45 && e.count >= 2)
-        .sort((a, b) => codeSeverity(b.code) - codeSeverity(a.code) || b.count - a.count);
+        .filter(e => e.code >= 45 && e.weight >= 4)
+        .sort((a, b) => codeSeverity(b.code) - codeSeverity(a.code) || b.weight - a.weight);
       if (meaningful.length) return meaningful[0].code;
 
-      return entries.sort((a, b) => b.count - a.count)[0].code;
+      return entries.sort((a, b) => b.weight - a.weight)[0].code;
     }
 
     function dailyMaxPollen(pollen, dayDateStr) {
@@ -1578,6 +1632,23 @@
       }).toLowerCase().replace(' ', '');
     }
 
+    // The hour slot most representative of "now" in the location's timezone.
+    // Open-Meteo's hourly buckets are anchored to the start of the hour, so at
+    // 14:45 the 15:00 forecast is closer to current reality than the 14:00 one.
+    // Rounds up at >= 30 minutes past the hour but never crosses midnight (so
+    // the today-hourly strip never empties out at 23:30+).
+    function currentHourInTZ(timezone) {
+      const parts = new Intl.DateTimeFormat('en-GB', {
+        timeZone: timezone,
+        hour: '2-digit',
+        minute: '2-digit',
+        hour12: false
+      }).formatToParts(new Date());
+      const hour = Number(parts.find(p => p.type === 'hour').value);
+      const minute = Number(parts.find(p => p.type === 'minute').value);
+      return minute >= 30 && hour < 23 ? hour + 1 : hour;
+    }
+
     function formatTime(isoString) {
       return new Date(isoString).toLocaleTimeString(undefined, {
         hour: '2-digit',
@@ -1596,11 +1667,7 @@
 
       // For today, start from the current hour (in the location's timezone);
       // for other days, show all 24.
-      const currentHour = Number(new Date().toLocaleString('en-GB', {
-        timeZone: weatherData.timezone,
-        hour: '2-digit',
-        hour12: false
-      }));
+      const currentHour = currentHourInTZ(weatherData.timezone);
 
       // Find hourly entries that fall on this day (YYYY-MM-DD prefix match).
       // For today, drop hours already past so the strip starts at "now".
@@ -1630,8 +1697,11 @@
         const isNow = dayIndex === 0 && new Date(t).getHours() === currentHour;
         const wind = h.wind_speed_10m[i];
         const temp = Math.round(h.temperature_2m[i]);
-        const feels = h.apparent_temperature ? Math.round(h.apparent_temperature[i]) : null;
-        const feelsHTML = feels != null && Math.abs(feels - temp) >= 1 ?
+        const feels = h.apparent_temperature?.[i] != null ? Math.round(h.apparent_temperature[i]) : null;
+        // Show feels-like whenever the rounded value differs from the actual
+        // temperature. The previous |diff| >= 1 check (on already-rounded ints)
+        // suppressed every sub-degree difference, hiding subtle wind-chill cues.
+        const feelsHTML = feels != null && feels !== temp ?
           `<div class="hour-feels">feels ${feels}°</div>` :
           `<div class="hour-feels"></div>`;
         return `
@@ -1766,8 +1836,13 @@
           const code = bikeIdxs
             .map(i => h.weather_code[i])
             .reduce((a, b) => codeSeverity(b) > codeSeverity(a) ? b : a);
+          // Worst-case mm/prob across the commute window, plus the unified
+          // expected-rain metric that drives the drizzle warning so it doesn't
+          // disagree with the outfit logic.
           const mm = Math.max(...bikeIdxs.map(i => h.precipitation?.[i] ?? 0));
           const prob = Math.max(...bikeIdxs.map(i => h.precipitation_probability?.[i] ?? 0));
+          const expRain = Math.max(...bikeIdxs.map(i =>
+            expectedRainMm(h.precipitation_probability?.[i], h.precipitation?.[i])));
           const gust = Math.max(...bikeIdxs.map(i => h.wind_gusts_10m?.[i] ?? h.wind_speed_10m?.[i] ?? 0));
           const tempVals = bikeIdxs.map(i => h.apparent_temperature?.[i] ?? h.temperature_2m[i]);
           const temp = Math.round(tempVals.reduce((a, b) => a + b, 0) / tempVals.length);
@@ -1788,7 +1863,7 @@
           } else if (gust >= 35) {
             canBike = false;
             reason = `${Math.round(gust)}mph gusts during the commute — risky on two wheels.`;
-          } else if (mm >= 0.5 || prob >= 50) {
+          } else if (expRain >= 0.25) {
             reason = `Drizzle possible (${prob}%, ${mm.toFixed(1)}mm) — waterproofs on, but go.`;
           } else if (gust >= 25) {
             reason = `${temp}° and breezy (${Math.round(gust)}mph gusts) — watch for buffeting, otherwise fine.`;
@@ -1809,9 +1884,10 @@
               });
               if (homeEntries.length) {
                 const homeIdxs = homeEntries.map(({ i }) => i);
-                const homeMm = Math.max(...homeIdxs.map(i => h.precipitation?.[i] ?? 0));
                 const homeProb = Math.max(...homeIdxs.map(i => h.precipitation_probability?.[i] ?? 0));
-                if (homeMm >= 0.5 || homeProb >= 50) {
+                const homeExpRain = Math.max(...homeIdxs.map(i =>
+                  expectedRainMm(h.precipitation_probability?.[i], h.precipitation?.[i])));
+                if (homeExpRain >= 0.25) {
                   // Build the window label from whatever hours are still ahead,
                   // so at 4:30pm we don't claim "4–6pm" off a single 5pm slot.
                   const fmt = hr => {
@@ -2410,6 +2486,7 @@
       weatherData = data;
       document.getElementById('location').textContent = locationName.split(',')[0].trim();
       startClock(data.timezone);
+      startRefreshCycle();
 
       const d = data.daily;
       const daysHTML = d.time.map((date, i) => {
@@ -2500,6 +2577,23 @@
     // Tracks whether we're currently showing a city picked from the search
     // box, so the washing-line box can be hidden (only meaningful for "here").
     let isSearchedLocation = false;
+    // Wall-clock time of the last successful weather fetch. Used to drive the
+    // "updated Xm ago" line and to decide when a stale page needs refreshing.
+    let lastWeatherFetch = null;
+    let currentLocation = null;
+    let refreshInterval = null;
+
+    // Human-readable "time since last fetch", or null when data is fresh
+    // enough that calling it out would be noise.
+    function freshnessLabel() {
+      if (!lastWeatherFetch) return null;
+      const ageMs = Date.now() - lastWeatherFetch;
+      const ageMin = Math.floor(ageMs / 60000);
+      if (ageMin < 5) return null;
+      if (ageMin < 60) return `updated ${ageMin}m ago`;
+      const ageHr = Math.floor(ageMin / 60);
+      return `updated ${ageHr}h ${ageMin % 60}m ago`;
+    }
 
     function updateSubtitle(timezone) {
       const now = new Date();
@@ -2517,7 +2611,12 @@
         minute: '2-digit',
         ...opts
       });
-      document.getElementById('subtitle').textContent = `${dateStr} · ${timeStr}`;
+      const fresh = freshnessLabel();
+      const stale = lastWeatherFetch && (Date.now() - lastWeatherFetch) >= 2 * 60 * 60 * 1000;
+      const freshHTML = fresh
+        ? ` · <span class="subtitle-fresh${stale ? ' stale' : ''}">${fresh}</span>`
+        : '';
+      document.getElementById('subtitle').innerHTML = `${dateStr} · ${timeStr}${freshHTML}`;
     }
 
     function startClock(timezone) {
@@ -2526,14 +2625,52 @@
       clockInterval = setInterval(() => updateSubtitle(timezone), 30000);
     }
 
+    // Refresh weather quietly in the background. Failures are swallowed so a
+    // transient network hiccup doesn't replace a live page with an error.
+    async function refreshWeather() {
+      if (!currentLocation) return;
+      try {
+        const { lat, lon, place } = currentLocation;
+        const [elevation, pollen] = await Promise.all([
+          getElevation(lat, lon),
+          getPollen(lat, lon)
+        ]);
+        const weather = await getWeather(lat, lon, elevation);
+        pollenData = pollen;
+        lastWeatherFetch = Date.now();
+        render(weather, place);
+      } catch { /* keep the existing forecast on screen */ }
+    }
+
+    function startRefreshCycle() {
+      if (refreshInterval) clearInterval(refreshInterval);
+      // 30 minutes matches Open-Meteo's typical model update cadence and
+      // keeps the "updated Xm ago" label honest without hammering the API.
+      refreshInterval = setInterval(refreshWeather, 30 * 60 * 1000);
+    }
+
+    // When the tab comes back to the foreground after being hidden for a
+    // while, refresh immediately rather than waiting for the next interval.
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState !== 'visible') return;
+      if (!lastWeatherFetch) return;
+      if (Date.now() - lastWeatherFetch >= 15 * 60 * 1000) refreshWeather();
+    });
+
     async function loadLocation(lat, lon, place) {
       document.getElementById('content').innerHTML =
         '<div class="status">Loading weather…</div>';
-      const [weather, pollen] = await Promise.all([
-        getWeather(lat, lon),
+      // Resolve elevation alongside pollen, then fetch weather with that
+      // elevation. Elevation is a small, fast endpoint, and folding it into
+      // the parallel fetch keeps the extra round-trip from blocking the UI.
+      const [elevation, pollen] = await Promise.all([
+        getElevation(lat, lon),
         getPollen(lat, lon)
       ]);
+      const weather = await getWeather(lat, lon, elevation);
       pollenData = pollen;
+      lastWeatherFetch = Date.now();
+      currentLocation = { lat, lon, place };
       render(weather, place);
     }
 
