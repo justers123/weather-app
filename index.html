@@ -1252,8 +1252,17 @@
         `&hourly=temperature_2m,apparent_temperature,weather_code,precipitation_probability,precipitation,wind_speed_10m,wind_gusts_10m,uv_index` +
         `&daily=weather_code,temperature_2m_max,temperature_2m_min,sunrise,sunset,uv_index_max` +
         `&wind_speed_unit=mph&timezone=auto&forecast_days=7`;
-      const r = await fetch(url);
-      if (!r.ok) throw new Error('Weather service unavailable.');
+      // The free Open-Meteo endpoint occasionally returns 5xx or fails the
+      // CORS preflight when it's overloaded. Surface that as a clear "the
+      // provider is down" message rather than a generic "Failed to fetch",
+      // so users don't think the app itself is broken.
+      let r;
+      try {
+        r = await fetch(url);
+      } catch {
+        throw new Error('providerDown');
+      }
+      if (!r.ok) throw new Error('providerDown');
       const data = await r.json();
       // Fail loudly if the API response is missing fields we depend on,
       // rather than letting undefined values silently surface as "NaN°" or
@@ -2549,9 +2558,14 @@
       document.getElementById('location').textContent = 'Weather';
       document.getElementById('subtitle').textContent = '';
       const isLocation = kind === 'location';
+      const isProviderDown = msg === 'providerDown';
+      const body = isProviderDown
+        ? `<div><strong>Weather data is temporarily unavailable.</strong></div>
+           <div style="margin-top:.5em;opacity:.85">Our forecasts come from <a href="https://open-meteo.com/" target="_blank" rel="noopener">Open-Meteo</a>, and their service is currently down or unreachable. This is on their end — please try again in a few minutes.</div>`
+        : `<div>${msg}</div>`;
       document.getElementById('content').innerHTML = `
       <div class="error">
-        <div>${msg}</div>
+        ${body}
         <div class="error-actions">
           ${isLocation
             ? `<button type="button" id="err-search">Search for a location</button>
