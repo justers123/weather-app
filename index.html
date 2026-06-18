@@ -1523,8 +1523,8 @@
 
     // Probability-weighted rain expectation: "50% chance of 1mm" and "100%
     // chance of 0.5mm" both come out at 0.5mm and warrant the same kit. Used
-    // everywhere we decide between dry / drizzly / properly wet — bike,
-    // outfit, evening-commute warning — so the thresholds stay coherent.
+    // everywhere we decide between dry / drizzly / properly wet — outfit,
+    // washing — so the thresholds stay coherent.
     function expectedRainMm(prob, mm) {
       const p = Math.max(0, Math.min(100, prob ?? 0));
       const m = Math.max(0, mm ?? 0);
@@ -1824,112 +1824,6 @@
           </div>
         </div>
       `;
-      }
-
-      // Bike-to-work: weekdays only, checks 7–8am since that's the commute
-      // window. Suppressed on today if it's already past 8am (the question
-      // is no longer live). Heavy rain / strong gusts / snow break it;
-      // light drizzle is fine — just bring waterproofs.
-      const dayOfWeek = new Date(dayDate).getDay();
-      const isWeekday = dayOfWeek >= 1 && dayOfWeek <= 5;
-      const bikeTooLate = dayIndex === 0 && currentHour >= 8;
-      if (isWeekday && !bikeTooLate) {
-        // Look across the whole commute window, not just 7am — an 8am shower
-        // matters too. Take the worst code, max precip/gusts, and a mean temp.
-        const bikeEntries = hoursForDay.filter(({ t }) => {
-          const hr = new Date(t).getHours();
-          return hr === 7 || hr === 8;
-        });
-        if (bikeEntries.length) {
-          const bikeIdxs = bikeEntries.map(({ i }) => i);
-          const code = bikeIdxs
-            .map(i => h.weather_code[i])
-            .reduce((a, b) => codeSeverity(b) > codeSeverity(a) ? b : a);
-          // Worst-case mm/prob across the commute window, plus the unified
-          // expected-rain metric that drives the drizzle warning so it doesn't
-          // disagree with the outfit logic.
-          const mm = Math.max(...bikeIdxs.map(i => h.precipitation?.[i] ?? 0));
-          const prob = Math.max(...bikeIdxs.map(i => h.precipitation_probability?.[i] ?? 0));
-          const expRain = Math.max(...bikeIdxs.map(i =>
-            expectedRainMm(h.precipitation_probability?.[i], h.precipitation?.[i])));
-          const gust = Math.max(...bikeIdxs.map(i => h.wind_gusts_10m?.[i] ?? h.wind_speed_10m?.[i] ?? 0));
-          const tempVals = bikeIdxs.map(i => h.apparent_temperature?.[i] ?? h.temperature_2m[i]);
-          const temp = Math.round(tempVals.reduce((a, b) => a + b, 0) / tempVals.length);
-          const heavyRainCode = [65, 67, 82, 95, 96, 99].includes(code);
-          const snowCode = [71, 73, 75, 77, 85, 86].includes(code);
-
-          let canBike = true;
-          let reason;
-          if (heavyRainCode) {
-            canBike = false;
-            reason = `Heavy rain during the commute — take the bus.`;
-          } else if (snowCode) {
-            canBike = false;
-            reason = `Snow during the commute — leave the bike.`;
-          } else if (mm >= 2) {
-            canBike = false;
-            reason = `${mm.toFixed(1)}mm of rain during 7–8am — too wet.`;
-          } else if (gust >= 35) {
-            canBike = false;
-            reason = `${Math.round(gust)}mph gusts during the commute — risky on two wheels.`;
-          } else if (expRain >= 0.25) {
-            reason = `Drizzle possible (${prob}%, ${mm.toFixed(1)}mm) — waterproofs on, but go.`;
-          } else if (gust >= 25) {
-            reason = `${temp}° and breezy (${Math.round(gust)}mph gusts) — watch for buffeting, otherwise fine.`;
-          } else if (prob >= 30) {
-            reason = `${temp}°, ${prob}% chance of a shower — worth a jacket.`;
-          } else {
-            reason = `${temp}° during 7–8am, dry and calm — perfect ride.`;
-          }
-
-          // Evening ride home: warn if rain is likely 4–6pm, regardless of
-          // the morning verdict. Skipped on today once it's past 6pm.
-          if (canBike) {
-            const homeTooLate = dayIndex === 0 && currentHour >= 18;
-            if (!homeTooLate) {
-              const homeEntries = hoursForDay.filter(({ t }) => {
-                const hr = new Date(t).getHours();
-                return hr >= 16 && hr <= 17;
-              });
-              if (homeEntries.length) {
-                const homeIdxs = homeEntries.map(({ i }) => i);
-                const homeProb = Math.max(...homeIdxs.map(i => h.precipitation_probability?.[i] ?? 0));
-                const homeExpRain = Math.max(...homeIdxs.map(i =>
-                  expectedRainMm(h.precipitation_probability?.[i], h.precipitation?.[i])));
-                if (homeExpRain >= 0.25) {
-                  // Build the window label from whatever hours are still ahead,
-                  // so at 4:30pm we don't claim "4–6pm" off a single 5pm slot.
-                  const fmt = hr => {
-                    const period = hr >= 12 ? 'pm' : 'am';
-                    const h12 = hr % 12 === 0 ? 12 : hr % 12;
-                    return `${h12}${period}`;
-                  };
-                  const hrs = [...new Set(homeEntries.map(({ t }) => new Date(t).getHours()))].sort((a, b) => a - b);
-                  const startLabel = fmt(hrs[0]);
-                  const endLabel = fmt(hrs[hrs.length - 1] + 1);
-                  reason += ` Heads-up: rain likely ${startLabel}–${endLabel} (${homeProb}%) on the way home.`;
-                }
-              }
-            }
-          }
-
-          const bikeIcon = `<svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <circle cx="5.5" cy="17.5" r="3.5"/>
-            <circle cx="18.5" cy="17.5" r="3.5"/>
-            <circle cx="15" cy="5" r="1"/>
-            <path d="M12 17.5V14l-3-3 5-3 3 4h3"/>
-          </svg>`;
-
-          advisorsHTML += `
-            <div class="advisor ${canBike ? 'yes' : 'no'}">
-              <div class="advisor-icon">${bikeIcon}</div>
-              <div>
-                <div class="advisor-title">Bike to work? ${canBike ? 'Yes' : 'No'}</div>
-                <div class="advisor-reason">${reason}</div>
-              </div>
-            </div>
-          `;
-        }
       }
 
       // Frost warning: for today, look at the remaining hours plus the
