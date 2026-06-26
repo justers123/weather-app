@@ -1612,19 +1612,20 @@
       return rawCode;
     }
 
-    // Summarise a day's weather between sunrise and sunset. Hours are weighted
-    // by importance so that "an hour of dawn fog plus eight hours of sunshine"
-    // labels as sunny, not foggy — midday hours carry far more weight than
-    // fringe ones, and a brief afternoon storm still wins on severity.
-    function daytimeWeatherCode(hourly, dayDateStr, sunriseISO, sunsetISO) {
-      const startHr = sunriseISO ? new Date(sunriseISO).getHours() : 7;
-      const endHr = sunsetISO ? new Date(sunsetISO).getHours() : 16;
+    // Summarise a day's weather across the active part of the day, a fixed
+    // 9am–8pm window. Hours are weighted by importance so that "an hour of dawn
+    // fog plus eight hours of sunshine" labels as sunny, not foggy — midday
+    // hours carry far more weight than fringe ones, and a brief afternoon storm
+    // still wins on severity.
+    const DAY_WINDOW_START = 9;
+    const DAY_WINDOW_END = 20;
+    function daytimeWeatherCode(hourly, dayDateStr) {
       const hourWeight = hr => (hr >= 11 && hr <= 14) ? 3 : (hr >= 9 && hr <= 17) ? 2 : 1;
       const weights = {};
       hourly.time.forEach((t, i) => {
         if (!t.startsWith(dayDateStr)) return;
         const hr = new Date(t).getHours();
-        if (hr < startHr || hr > endHr) return;
+        if (hr < DAY_WINDOW_START || hr > DAY_WINDOW_END) return;
         const rawCode = hourly.weather_code?.[i];
         if (rawCode == null) return;
         const prob = hourly.precipitation_probability?.[i] ?? 0;
@@ -1662,14 +1663,12 @@
     // combined sun + rain icon instead of forcing the card to pick just one.
     // Counts only rain/drizzle/showers (not snow or thunder, which headline on
     // their own) and requires at least a couple of hours of each.
-    function daytimeSunAndRain(hourly, dayDateStr, sunriseISO, sunsetISO) {
-      const startHr = sunriseISO ? new Date(sunriseISO).getHours() : 7;
-      const endHr = sunsetISO ? new Date(sunsetISO).getHours() : 16;
+    function daytimeSunAndRain(hourly, dayDateStr) {
       let sunny = 0, rainy = 0;
       hourly.time.forEach((t, i) => {
         if (!t.startsWith(dayDateStr)) return;
         const hr = new Date(t).getHours();
-        if (hr < startHr || hr > endHr) return;
+        if (hr < DAY_WINDOW_START || hr > DAY_WINDOW_END) return;
         const rawCode = hourly.weather_code?.[i];
         if (rawCode == null) return;
         const code = effectiveCode(rawCode, hourly.precipitation_probability?.[i] ?? 0, hourly.precipitation?.[i] ?? 0);
@@ -1738,7 +1737,7 @@
       const dayDate = d.time[dayIndex];
       // Use the same daytime-summary code as the day card so the description
       // here can't contradict the icon you clicked on.
-      const summaryCode = daytimeWeatherCode(h, dayDate, d.sunrise[dayIndex], d.sunset[dayIndex]) ?? d.weather_code[dayIndex];
+      const summaryCode = daytimeWeatherCode(h, dayDate) ?? d.weather_code[dayIndex];
       const [desc] = describe(summaryCode);
 
       // For today, start from the current hour (in the location's timezone);
@@ -2098,14 +2097,14 @@
         .filter(i => i >= 0);
 
       // Daytime-only slice: the "vibe" (sunny/wet/storm) and headline daytime
-      // stats are taken from sunrise–sunset so they match the day-card icon,
-      // which is also computed from daytime hours. Overnight lows still come
-      // from the full 24h so frost detection isn't lost.
-      const sunriseHr = new Date(d.sunrise[dayIndex]).getHours();
-      const sunsetHr = new Date(d.sunset[dayIndex]).getHours();
+      // stats summarise the active part of the day, a fixed 9am–8pm window, so
+      // the text reads as "what's it like while I'm up and about". Overnight
+      // lows still come from the full 24h so frost detection isn't lost.
+      const DAY_START_HR = 9;
+      const DAY_END_HR = 20;
       const dayHourIdxs = hourIdxs.filter(i => {
         const hr = new Date(h.time[i]).getHours();
-        return hr >= sunriseHr && hr <= sunsetHr;
+        return hr >= DAY_START_HR && hr <= DAY_END_HR;
       });
       const vibeIdxs = dayHourIdxs.length ? dayHourIdxs : hourIdxs;
 
@@ -2451,12 +2450,12 @@
 
       const d = data.daily;
       const daysHTML = d.time.map((date, i) => {
-        const summaryCode = daytimeWeatherCode(data.hourly, date, d.sunrise[i], d.sunset[i]) ?? d.weather_code[i];
+        const summaryCode = daytimeWeatherCode(data.hourly, date) ?? d.weather_code[i];
         let [desc, icon] = describe(summaryCode);
         // A day with both sunny and rainy spells gets a combined icon rather
         // than collapsing to whichever the summary code picked. Snow/thunder
         // (>= 71) keep their own icon — those headline regardless of sunshine.
-        if (summaryCode < 71 && daytimeSunAndRain(data.hourly, date, d.sunrise[i], d.sunset[i])) {
+        if (summaryCode < 71 && daytimeSunAndRain(data.hourly, date)) {
           icon = svg.sunRain;
           desc = 'Sun & showers';
         }
