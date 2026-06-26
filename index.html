@@ -1864,17 +1864,19 @@
         if (canHang) {
           reason = `Rain chance stays under 50% (peak ${maxProb}% between ${windowLabel}).`;
         } else {
-          // Call out the worst offending hour by its actual mm so the user can
-          // judge — "60% / 0.3mm at 2pm" is far more useful than just "60%".
+          // Call out the worst offending hour by its rain chance. Only quote an
+          // mm figure when the forecast actually expects measurable rain —
+          // otherwise we'd print nonsense like "72% chance of 0.0mm".
           const worst = wetHours.reduce((a, b) => {
             const ap = h.precipitation_probability?.[a.i] ?? 0;
             const bp = h.precipitation_probability?.[b.i] ?? 0;
             return bp > ap ? b : a;
           });
           const wHr = new Date(worst.t).getHours();
-          const wMm = (h.precipitation?.[worst.i] ?? 0).toFixed(1);
+          const wMm = h.precipitation?.[worst.i] ?? 0;
           const wProb = h.precipitation_probability?.[worst.i] ?? 0;
-          reason = `${wProb}% chance of ${wMm}mm around ${fmtHour12(wHr)} — bring it in.`;
+          const amount = wMm >= 0.1 ? ` (about ${wMm.toFixed(1)}mm)` : '';
+          reason = `${wProb}% chance of rain${amount} around ${fmtHour12(wHr)} — bring it in.`;
         }
         advisorsHTML += `
         <div class="advisor ${canHang ? 'yes' : 'no'}">
