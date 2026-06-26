@@ -1604,9 +1604,15 @@
     // says it's wet, swap the icon over to drizzle/rain. Never downgrade a code
     // that already encodes precip/fog/storm.
     function effectiveCode(rawCode, prob, mm) {
-      if (rawCode >= 45) return rawCode;
       const p = prob ?? 0;
       const m = mm ?? 0;
+      // A light-precip code (drizzle / light rain, 51–61) with effectively no
+      // rain in the amount field and a low probability is almost always the
+      // code and precip outputs disagreeing — show overcast rather than a
+      // misleading wet icon. Heavier rain, showers, snow, fog and storms, or
+      // any hour with real accumulation/high odds, are still trusted.
+      if (rawCode >= 51 && rawCode <= 61 && m < 0.1 && p < 50) return 3;
+      if (rawCode >= 45) return rawCode;
       if (m >= 0.5) return 63;            // rain
       if (m >= 0.1 || p >= 60) return 53; // drizzle
       return rawCode;
