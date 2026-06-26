@@ -1068,6 +1068,7 @@
       rain: `<svg viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg"><path d="M18 30 Q18 18 30 18 Q34 10 44 12 Q56 12 56 24 Q62 26 60 34 Q58 42 48 42 L20 42 Q10 42 10 32 Q10 26 18 30 Z" fill="#64748b" stroke="#475569" stroke-width="1.5"/><g stroke="#3B82F6" stroke-width="3" stroke-linecap="round"><line x1="20" y1="48" x2="16" y2="58"/><line x1="30" y1="48" x2="26" y2="58"/><line x1="40" y1="48" x2="36" y2="58"/><line x1="50" y1="48" x2="46" y2="58"/></g></svg>`,
       snow: `<svg viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg"><path d="M18 30 Q18 18 30 18 Q34 10 44 12 Q56 12 56 24 Q62 26 60 34 Q58 42 48 42 L20 42 Q10 42 10 32 Q10 26 18 30 Z" fill="#CBD5E1" stroke="#94a3b8" stroke-width="1.5"/><g fill="#E0F2FE" stroke="#7DD3FC" stroke-width="1"><circle cx="20" cy="52" r="3"/><circle cx="32" cy="56" r="3"/><circle cx="44" cy="52" r="3"/></g></svg>`,
       thunder: `<svg viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg"><path d="M18 30 Q18 18 30 18 Q34 10 44 12 Q56 12 56 24 Q62 26 60 34 Q58 42 48 42 L20 42 Q10 42 10 32 Q10 26 18 30 Z" fill="#475569" stroke="#334155" stroke-width="1.5"/><path d="M32 42 L24 56 L30 56 L28 62 L38 48 L32 48 L34 42 Z" fill="#FBBF24" stroke="#F59E0B" stroke-width="1"/></svg>`,
+      sunRain: `<svg viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg"><circle cx="20" cy="20" r="8" fill="#FFC107"/><g stroke="#FFC107" stroke-width="2.5" stroke-linecap="round"><line x1="20" y1="4" x2="20" y2="9"/><line x1="4" y1="20" x2="9" y2="20"/><line x1="8" y1="8" x2="12" y2="12"/><line x1="30" y1="10" x2="33" y2="7"/></g><path d="M22 42 Q22 32 32 32 Q36 26 44 28 Q54 28 54 38 Q60 40 58 47 Q56 52 48 52 L24 52 Q16 52 16 45 Q16 40 22 42 Z" fill="#E3E8F0" stroke="#94a3b8" stroke-width="1.5"/><g stroke="#3B82F6" stroke-width="2.5" stroke-linecap="round"><line x1="26" y1="56" x2="24" y2="61"/><line x1="36" y1="56" x2="34" y2="61"/><line x1="46" y1="56" x2="44" y2="61"/></g></svg>`,
       moon: `<svg viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg"><path d="M42 10 A22 22 0 1 0 54 42 A18 18 0 0 1 42 10 Z" fill="#CBD5E1" stroke="#94a3b8" stroke-width="1.5"/></svg>`,
       partlyNight: `<svg viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg"><path d="M28 8 A14 14 0 1 0 36 28 A11 11 0 0 1 28 8 Z" fill="#CBD5E1" stroke="#94a3b8" stroke-width="1.5"/><path d="M20 44 Q20 34 30 34 Q34 28 42 30 Q52 30 52 40 Q58 42 56 50 Q54 56 46 56 L22 56 Q14 56 14 48 Q14 42 20 44 Z" fill="#E3E8F0" stroke="#94a3b8" stroke-width="1.5"/></svg>`
     };
@@ -1612,6 +1613,28 @@
       return entries.sort((a, b) => b.weight - a.weight)[0].code;
     }
 
+    // True when a day mixes a meaningful amount of sunshine with a meaningful
+    // amount of rain — the classic "sunshine and showers" day. Used to show a
+    // combined sun + rain icon instead of forcing the card to pick just one.
+    // Counts only rain/drizzle/showers (not snow or thunder, which headline on
+    // their own) and requires at least a couple of hours of each.
+    function daytimeSunAndRain(hourly, dayDateStr, sunriseISO, sunsetISO) {
+      const startHr = sunriseISO ? new Date(sunriseISO).getHours() : 7;
+      const endHr = sunsetISO ? new Date(sunsetISO).getHours() : 16;
+      let sunny = 0, rainy = 0;
+      hourly.time.forEach((t, i) => {
+        if (!t.startsWith(dayDateStr)) return;
+        const hr = new Date(t).getHours();
+        if (hr < startHr || hr > endHr) return;
+        const rawCode = hourly.weather_code?.[i];
+        if (rawCode == null) return;
+        const code = effectiveCode(rawCode, hourly.precipitation_probability?.[i] ?? 0, hourly.precipitation?.[i] ?? 0);
+        if (code <= 2) sunny++;                       // clear / mainly clear / partly
+        else if (code >= 51 && code <= 82) rainy++;   // drizzle, rain, showers
+      });
+      return sunny >= 2 && rainy >= 2;
+    }
+
     function dailyMaxPollen(pollen, dayDateStr) {
       if (!pollen || !pollen.hourly) return null;
       const fields = ['alder_pollen', 'birch_pollen', 'grass_pollen', 'mugwort_pollen', 'olive_pollen', 'ragweed_pollen'];
@@ -1776,11 +1799,11 @@
         const maxProb = Math.max(...washingHours.map(({
           i
         }) => h.precipitation_probability[i] ?? 0));
-        // Recommend only if rain probability stays under 20% for every hour in
+        // Recommend only if rain probability stays under 50% for every hour in
         // the window — any hour at or above that is enough to bring it in.
         const wetHours = washingHours.filter(({
           i
-        }) => (h.precipitation_probability[i] ?? 0) >= 20);
+        }) => (h.precipitation_probability[i] ?? 0) >= 50);
         const canHang = wetHours.length === 0;
         const fmtHour12 = hr => {
           const period = hr >= 12 ? 'pm' : 'am';
@@ -1790,7 +1813,7 @@
         const windowLabel = `${fmtHour12(washingStart)}–${fmtHour12(washingEnd)}`;
         let reason;
         if (canHang) {
-          reason = `Rain chance stays under 20% (peak ${maxProb}% between ${windowLabel}).`;
+          reason = `Rain chance stays under 50% (peak ${maxProb}% between ${windowLabel}).`;
         } else {
           // Call out the worst offending hour by its actual mm so the user can
           // judge — "60% / 0.3mm at 2pm" is far more useful than just "60%".
@@ -2385,7 +2408,14 @@
       const d = data.daily;
       const daysHTML = d.time.map((date, i) => {
         const summaryCode = daytimeWeatherCode(data.hourly, date, d.sunrise[i], d.sunset[i]) ?? d.weather_code[i];
-        const [desc, icon] = describe(summaryCode);
+        let [desc, icon] = describe(summaryCode);
+        // A day with both sunny and rainy spells gets a combined icon rather
+        // than collapsing to whichever the summary code picked. Snow/thunder
+        // (>= 71) keep their own icon — those headline regardless of sunshine.
+        if (summaryCode < 71 && daytimeSunAndRain(data.hourly, date, d.sunrise[i], d.sunset[i])) {
+          icon = svg.sunRain;
+          desc = 'Sun & showers';
+        }
         const weekday = new Date(date).getDay();
         const isWeekend = weekday === 0 || weekday === 6;
         return `
