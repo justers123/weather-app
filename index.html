@@ -837,6 +837,15 @@
       color: var(--plum);
     }
 
+    .search-recent-heading {
+      padding: 0.35rem 0.7rem 0.15rem;
+      font-size: 0.7rem;
+      font-weight: 600;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      color: var(--plum);
+    }
+
     @keyframes fade-up {
       from {
         opacity: 0;
@@ -1148,6 +1157,41 @@
           place,
           timestamp: Date.now()
         }));
+      } catch {
+        /* storage unavailable, ignore */
+      }
+    }
+
+    // Recent searches — up to 5 picked locations, most-recent first, kept in
+    // localStorage so they survive page reloads. Each entry stores just enough
+    // to re-run a lookup (the same shape a geocoding result exposes).
+    const RECENT_SEARCHES_KEY = 'weather-app-recent-searches';
+    const RECENT_SEARCHES_MAX = 5;
+
+    function getRecentSearches() {
+      try {
+        const raw = localStorage.getItem(RECENT_SEARCHES_KEY);
+        const list = raw ? JSON.parse(raw) : [];
+        return Array.isArray(list) ? list : [];
+      } catch {
+        return [];
+      }
+    }
+
+    function addRecentSearch(item) {
+      try {
+        const entry = {
+          name: item.name,
+          country: item.country,
+          country_code: item.country_code,
+          admin1: item.admin1,
+          latitude: item.latitude,
+          longitude: item.longitude
+        };
+        const key = r => `${r.latitude},${r.longitude}`;
+        const next = [entry, ...getRecentSearches().filter(r => key(r) !== key(entry))]
+          .slice(0, RECENT_SEARCHES_MAX);
+        localStorage.setItem(RECENT_SEARCHES_KEY, JSON.stringify(next));
       } catch {
         /* storage unavailable, ignore */
       }
@@ -2640,9 +2684,31 @@
       searchPanel.hidden = !shouldShow;
       if (shouldShow) {
         searchInput.value = '';
-        searchResults.innerHTML = '';
+        renderRecentSearches();
         searchInput.focus();
       }
+    }
+
+    // Show the saved recent searches under the input. Called whenever the
+    // query is empty (panel just opened, or the user cleared the box).
+    function renderRecentSearches() {
+      const recents = getRecentSearches();
+      if (!recents.length) {
+        searchResults.innerHTML = '';
+        return;
+      }
+      searchResults.innerHTML =
+        '<div class="search-recent-heading">Recent</div>' +
+        recents.map((it, i) => {
+          const sub = [it.admin1, shortCountry(it.country_code, it.country)].filter(Boolean).join(', ');
+          return `<button type="button" class="search-result" data-recent="${i}">
+            <strong>${it.name}</strong>
+            <span>${sub}</span>
+          </button>`;
+        }).join('');
+      searchResults.querySelectorAll('.search-result').forEach(el => {
+        el.addEventListener('click', () => pickSearchResult(recents[Number(el.dataset.recent)]));
+      });
     }
 
     async function runSearch(name) {
@@ -2679,6 +2745,7 @@
       toggleSearch(false);
       btnSearch.disabled = true;
       try {
+        addRecentSearch(item);
         isSearchedLocation = true;
         const country = shortCountry(item.country_code, item.country);
         const place = country ? `${item.name}, ${country}` : item.name;
@@ -2704,7 +2771,7 @@
       clearTimeout(searchTimer);
       const q = searchInput.value.trim();
       if (q.length < 2) {
-        searchResults.innerHTML = '';
+        renderRecentSearches();
         return;
       }
       searchTimer = setTimeout(() => runSearch(q), 250);
